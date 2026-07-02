@@ -13,7 +13,7 @@ CREATE TABLE [dbo].[college_info](
 GO
 
 CREATE TABLE [dbo].[branch_info](
-    [Branch_Code] [bigint] NOT NULL, -- Note: Branch codes are often 9-10 digits, BIGINT is safer
+    [Branch_Code] [varchar](20) NOT NULL, -- Choice / Branch codes can be 10 digits with leading zeros or letters (e.g., '0110124610', '0302524270U')
     [Branch_Name] [nvarchar](500) NULL,
     [Home_University] [nvarchar](100) NULL,
     [Status] [nvarchar](100) NULL,
@@ -26,7 +26,7 @@ CREATE TABLE [dbo].[cap_cutoffs](
     [Year] [int] NOT NULL,
     [CAP_Round] [int] NOT NULL,
     [College_Code] [int] NOT NULL,
-    [Branch_Code] [bigint] NOT NULL,
+    [Branch_Code] [varchar](20) NOT NULL,
     [Category] [varchar](20) NOT NULL, -- e.g., 'GOPENS', 'GOBCS', 'TFWS'
     [Merit_Rank] [int] NULL,
     [Percentile] [decimal](10, 7) NULL, -- Renamed from Percentage to Percentile for accuracy
@@ -48,3 +48,23 @@ GO
 ALTER TABLE [dbo].[cap_cutoffs] WITH CHECK ADD CONSTRAINT [FK_cutoffs_branch] FOREIGN KEY([Branch_Code])
 REFERENCES [dbo].[branch_info] ([Branch_Code])
 GO
+
+-- All India Cutoffs Table
+CREATE TABLE [dbo].[all_india_cutoffs](
+    [Year] [int] NOT NULL,
+    [CAP_Round] [int] NOT NULL,
+    [Choice_Code] [varchar](20) NOT NULL,
+    [Merit_Rank] [int] NOT NULL,
+    [Percentile] [decimal](10, 7) NULL,
+    [Merit_Exam] [varchar](100) NULL,
+    [Type] [varchar](100) NULL,
+    [Seat_Type] [varchar](100) NULL,
+    CONSTRAINT [PK_all_india_cutoffs] PRIMARY KEY CLUSTERED 
+    (
+        [Year] ASC,
+        [CAP_Round] ASC,
+        [Choice_Code] ASC,
+        [Merit_Rank] ASC
+    )
+)
+GO

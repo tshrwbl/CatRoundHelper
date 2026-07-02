@@ -55,9 +55,9 @@ def extract_codes(text_chunk, cursor, current_col, current_br):
             except pyodbc.IntegrityError:
                 pass
                 
-        br_match = re.search(r'^\s*(\d{9,10})\s*-\s*(.+)$', line)
+        br_match = re.search(r'^\s*([A-Za-z0-9]{9,12})\s*-\s*(.+)$', line)
         if br_match:
-            current_br = int(br_match.group(1).strip())
+            current_br = str(br_match.group(1).strip())
             br_name = br_match.group(2).strip()
             
             status = None
