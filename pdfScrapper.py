@@ -42,6 +42,28 @@ def roman_to_int(roman_str):
     clean_roman = str(roman_str).replace('\n', '').strip().upper()
     return roman_map.get(clean_roman, 1)
 
+def extract_codes(text_chunk, cursor, current_col, current_br):
+    if not text_chunk: return current_col, current_br
+    for line in text_chunk.split('\n'):
+        col_match = re.search(r'^\s*(\d{4,5})\s*-\s*(.+)$', line)
+        if col_match and len(line) > 15:
+            current_col = int(col_match.group(1).strip())
+            col_name = col_match.group(2).strip()
+            try:
+                cursor.execute("INSERT INTO college_info (College_Code, College_Name) VALUES (?, ?)", (current_col, col_name))
+            except pyodbc.IntegrityError:
+                pass
+                
+        br_match = re.search(r'^\s*(\d{9,10})\s*-\s*(.+)$', line)
+        if br_match:
+            current_br = int(br_match.group(1).strip())
+            br_name = br_match.group(2).strip()
+            try:
+                cursor.execute("INSERT INTO branch_info (Branch_Code, Branch_Name) VALUES (?, ?)", (current_br, br_name))
+            except pyodbc.IntegrityError:
+                pass
+    return current_col, current_br
+
 def process_pdf():
     pdf_path = filedialog.askopenfilename(title="Select PDF", filetypes=[("PDF", "*.pdf")])
     if not pdf_path: return
@@ -54,42 +76,60 @@ def process_pdf():
         print(f"Database connection failed: {e}")
         return
 
-    current_col_code, current_br_code = None, None
+    global_col_code, global_br_code = None, None
     table_settings = {"vertical_strategy": "text", "horizontal_strategy": "text", "intersection_tolerance": 15}
 
     with pdfplumber.open(pdf_path) as pdf:
         # NOTE: Limited to 5 pages for testing. Remove '[:5]' for the full run.
         for page_num, page in enumerate(pdf.pages[:5], start=1):
             print(f"\n--- Scanning Page {page_num} ---")
-            text = page.extract_text()
-            if not text: continue
             
-            for line in text.split('\n'):
-                col_match = re.search(r'^\s*(\d{4,5})\s*-\s*(.+)$', line)
-                if col_match and len(line) > 15:
-                    current_col_code = int(col_match.group(1).strip())
-
-                br_match = re.search(r'^\s*(\d{9,10})\s*-\s*(.+)$', line)
-                if br_match:
-                    current_br_code = int(br_match.group(1).strip())
-
-            if not current_col_code or not current_br_code:
-                print("   -> Missing College or Branch code on this page. Skipping.")
+            table_objs = page.find_tables()
+            if not table_objs:
+                table_objs = page.find_tables(table_settings)
+                
+            if not table_objs:
+                text = page.extract_text()
+                global_col_code, global_br_code = extract_codes(text, cursor, global_col_code, global_br_code)
                 continue
-
-            tables = page.extract_tables()
-            if not tables:
-                tables = page.extract_tables(table_settings)
             
+            last_bottom = 0
             inserted_rows = 0
-            for table in tables:
+            
+            for table_obj in table_objs:
+                # Crop and extract text above this table to find branch/college codes
+                top_crop = last_bottom
+                bottom_crop = max(top_crop, table_obj.bbox[1])
+                if bottom_crop > top_crop:
+                    bbox = (0, top_crop, page.width, bottom_crop)
+                    try:
+                        cropped = page.crop(bbox)
+                        text_chunk = cropped.extract_text()
+                        global_col_code, global_br_code = extract_codes(text_chunk, cursor, global_col_code, global_br_code)
+                    except Exception:
+                        pass
+                
+                table = table_obj.extract()
+                last_bottom = table_obj.bbox[3]
+                
+                if not global_col_code or not global_br_code:
+                    print("   -> Missing College or Branch code. Skipping table.")
+                    continue
+                    
                 if not table or len(table) < 2: continue
                 
                 # --- NEW LOGIC: Dynamically find the actual header row ---
                 header_row_idx = -1
                 for idx, row in enumerate(table[:5]):
                     row_text = " ".join([str(c).upper() for c in row if c])
-                    if "GOPENS" in row_text or "STAGE" in row_text:
+                    
+                    if "STATE LEVEL" in row_text or "HOME UNIVERSITY" in row_text or "CANDIDATES" in row_text:
+                        continue
+                        
+                    words = row_text.split()
+                    cat_words = [w for w in words if any(sub in w for sub in ['OPEN', 'OBC', 'SC', 'ST', 'VJ', 'NT', 'SBC', 'SEBC', 'PWD', 'DEF', 'EWS', 'TFWS', 'ORPHAN', 'STAGE']) and len(w) <= 12]
+                    
+                    if len(cat_words) >= 1:
                         header_row_idx = idx
                         break
                 
@@ -106,8 +146,8 @@ def process_pdf():
                         current_stage_int = roman_to_int(stage_cell)
                         
                     for col_idx, cell in enumerate(row):
-                        # Ensure we don't go out of bounds and we skip the 'Stage' column (usually col 0)
-                        if col_idx < len(headers) and col_idx > 0:
+                        # Ensure we don't go out of bounds
+                        if col_idx < len(headers):
                             category = str(headers[col_idx]).replace('\n', '').strip()
                             
                             # Skip if column header is empty or is the word 'Stage'
@@ -122,12 +162,26 @@ def process_pdf():
                                         INSERT INTO cap_cutoffs 
                                         (Year, CAP_Round, College_Code, Branch_Code, Category, Merit_Rank, Percentile)
                                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                                    """, (year, current_stage_int, current_col_code, current_br_code, category, rank, percentile))
+                                    """, (year, current_stage_int, global_col_code, global_br_code, category, rank, percentile))
                                     inserted_rows += 1
-                                except pyodbc.IntegrityError:
-                                    pass # Ignores duplicates silently
+                                except pyodbc.IntegrityError as e:
+                                    if 'FK_' in str(e):
+                                        print(f"   -> Foreign Key Error (Missing Code in branch/college table): {e}")
+                                    pass # Ignores PK duplicates silently
 
-            print(f"-> Inserted {inserted_rows} rows into cap_cutoffs.")
+            # Check text after the last table on the page for branch codes applying to the next page
+            try:
+                top_crop = last_bottom
+                bottom_crop = max(top_crop, page.height)
+                if bottom_crop > top_crop:
+                    bbox = (0, top_crop, page.width, bottom_crop)
+                    cropped = page.crop(bbox)
+                    text_chunk = cropped.extract_text()
+                    global_col_code, global_br_code = extract_codes(text_chunk, cursor, global_col_code, global_br_code)
+            except Exception:
+                pass
+
+            print(f"-> Inserted {inserted_rows} rows into cap_cutoffs from Page {page_num}.")
             conn.commit()
 
     cursor.close()
