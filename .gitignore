@@ -1,1 +1,26 @@
+# Visual Studio auto-generated files and build outputs
+.vs/
+*.ipch
+*.bin
+*.exe
+*.pdb
+*.obj
+*.suo
+*.user
+x64/
+Debug/
+Release/
+
+# Python cache and virtualenvs
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# PDFs and database files
 *.pdf
+*.db
+*.sqlite
+*.sqlite3
