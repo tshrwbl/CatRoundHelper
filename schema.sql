@@ -8,8 +8,6 @@ GO
 CREATE TABLE [dbo].[college_info](
     [College_Code] [int] NOT NULL,
     [College_Name] [nvarchar](500) NULL,
-    [Home_University] [nvarchar](100) NULL,
-    [Status] [nvarchar](100) NULL,
     CONSTRAINT [PK_college_info] PRIMARY KEY CLUSTERED ([College_Code] ASC)
 )
 GO
@@ -17,6 +15,8 @@ GO
 CREATE TABLE [dbo].[branch_info](
     [Branch_Code] [bigint] NOT NULL, -- Note: Branch codes are often 9-10 digits, BIGINT is safer
     [Branch_Name] [nvarchar](500) NULL,
+    [Home_University] [nvarchar](100) NULL,
+    [Status] [nvarchar](100) NULL,
     CONSTRAINT [PK_branch_info] PRIMARY KEY CLUSTERED ([Branch_Code] ASC)
 )
 GO

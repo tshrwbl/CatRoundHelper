@@ -44,7 +44,8 @@ def roman_to_int(roman_str):
 
 def extract_codes(text_chunk, cursor, current_col, current_br):
     if not text_chunk: return current_col, current_br
-    for line in text_chunk.split('\n'):
+    lines = text_chunk.split('\n')
+    for idx, line in enumerate(lines):
         col_match = re.search(r'^\s*(\d{4,5})\s*-\s*(.+)$', line)
         if col_match and len(line) > 15:
             current_col = int(col_match.group(1).strip())
@@ -58,10 +59,34 @@ def extract_codes(text_chunk, cursor, current_col, current_br):
         if br_match:
             current_br = int(br_match.group(1).strip())
             br_name = br_match.group(2).strip()
+            
+            status = None
+            home_uni = None
+            
+            # Look ahead up to 3 lines to find Status and Home University
+            for j in range(idx, min(idx+4, len(lines))):
+                line_j = lines[j]
+                if 'Status' in line_j:
+                    if 'Home University' in line_j:
+                        m = re.search(r'Status\s*:\s*(.*?)\s+Home\s+University\s*:\s*(.*)', line_j, re.IGNORECASE)
+                        if m:
+                            status = m.group(1).strip()
+                            home_uni = m.group(2).strip()
+                    else:
+                        m = re.search(r'Status\s*:\s*(.*)', line_j, re.IGNORECASE)
+                        if m:
+                            status = m.group(1).strip()
+                    break
+            
             try:
-                cursor.execute("INSERT INTO branch_info (Branch_Code, Branch_Name) VALUES (?, ?)", (current_br, br_name))
+                cursor.execute("INSERT INTO branch_info (Branch_Code, Branch_Name, Status, Home_University) VALUES (?, ?, ?, ?)", (current_br, br_name, status, home_uni))
             except pyodbc.IntegrityError:
-                pass
+                if status or home_uni:
+                    cursor.execute("""
+                        UPDATE branch_info 
+                        SET Status = ISNULL(Status, ?), Home_University = ISNULL(Home_University, ?)
+                        WHERE Branch_Code = ?
+                    """, (status, home_uni, current_br))
     return current_col, current_br
 
 def process_pdf():

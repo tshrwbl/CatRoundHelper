@@ -1,20 +1,25 @@
-def test_header(row_text):
-    if "STATE LEVEL" in row_text or "HOME UNIVERSITY" in row_text or "CANDIDATES" in row_text:
-        return False
-        
-    words = row_text.split()
-    cat_words = [w for w in words if any(sub in w for sub in ['OPEN', 'OBC', 'SC', 'ST', 'VJ', 'NT', 'SBC', 'SEBC', 'PWD', 'DEF', 'EWS', 'TFWS', 'ORPHAN', 'STAGE']) and len(w) <= 12]
-    return len(cat_words) >= 1
+import pyodbc
+SQL_CONN_STR = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "SERVER=localhost;"
+    "DATABASE=CollegeData;"
+    "Trusted_Connection=yes;"
+)
+try:
+    conn = pyodbc.connect(SQL_CONN_STR)
+    cursor = conn.cursor()
+    cursor.execute("ALTER TABLE college_info DROP COLUMN Home_University;")
+    cursor.execute("ALTER TABLE college_info DROP COLUMN Status;")
+    print("Dropped from college_info")
+except Exception as e:
+    print("Error dropping:", e)
 
-texts = [
-    "STATE LEVEL",
-    "HOME UNIVERSITY SEATS ALLOTTED TO HOME UNIVERSITY CANDIDATES",
-    "STAGE GOPENS GSCS",
-    "GOPENH GOBCH LOPENH",
-    "L SEBCH",
-    "TFWS EWS",
-    "PWDROBC S"
-]
+try:
+    cursor.execute("ALTER TABLE branch_info ADD Home_University nvarchar(100) NULL;")
+    cursor.execute("ALTER TABLE branch_info ADD Status nvarchar(100) NULL;")
+    print("Added to branch_info")
+except Exception as e:
+    print("Error adding:", e)
 
-for t in texts:
-    print(f"'{t}': {test_header(t)}")
+conn.commit()
+print("Schema update complete!")
