@@ -1,8 +1,0 @@
-﻿  PdfExtractor.cpp
-C:\Data\Repos_Sep2020\Local_git_repo\CatRoundHelper\PdfExtractor\PdfExtractor.cpp(331,44): warning C4244: 'argument': conversion from 'SQLINTEGER' to 'SQLSMALLINT', possible loss of data
-  Generating code
-  542 of 2637 functions (20.6%) were compiled, the rest were copied from previous compilation.
-    0 functions were new in current compilation
-    263 functions had inline decision re-evaluated but remain unchanged
-  Finished generating code
-  PdfExtractor.vcxproj -> C:\Data\Repos_Sep2020\Local_git_repo\CatRoundHelper\PdfExtractor\x64\Release\PdfExtractor.exe

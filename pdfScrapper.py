@@ -92,7 +92,7 @@ def extract_codes(text_chunk, cursor, current_col, current_br):
 def process_pdf():
     pdf_path = filedialog.askopenfilename(title="Select PDF", filetypes=[("PDF", "*.pdf")])
     if not pdf_path: return
-    year = 2024
+    year = 2022
 
     try:
         conn = pyodbc.connect(SQL_CONN_STR)

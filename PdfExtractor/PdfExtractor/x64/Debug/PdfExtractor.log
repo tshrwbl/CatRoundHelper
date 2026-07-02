@@ -1,4 +1,0 @@
-﻿  PdfExtractor.cpp
-C:\Data\Repos_Sep2020\Local_git_repo\CatRoundHelper\PdfExtractor\PdfExtractor.cpp(322,44): warning C4244: 'argument': conversion from 'SQLINTEGER' to 'SQLSMALLINT', possible loss of data
-C:\Data\Repos_Sep2020\Local_git_repo\CatRoundHelper\PdfExtractor\PdfExtractor.cpp(421,55): warning C4244: '=': conversion from 'const __int64' to 'int', possible loss of data
-  PdfExtractor.vcxproj -> C:\Data\Repos_Sep2020\Local_git_repo\CatRoundHelper\PdfExtractor\x64\Debug\PdfExtractor.exe
