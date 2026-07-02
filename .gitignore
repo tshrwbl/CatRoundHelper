@@ -1,1 +1,5 @@
 *.pdf
+PdfExtractor/PdfExtractor/x64/
+PdfExtractor/poppler-24.07.0/
+PdfExtractor/.vs/
+PdfExtractor/x64/

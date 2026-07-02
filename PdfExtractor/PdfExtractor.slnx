@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="PdfExtractor.vcxproj" Id="0d74810a-e31c-4abb-9a44-e0fa6ca8d01a" />
+</Solution>
