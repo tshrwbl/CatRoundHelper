@@ -59,10 +59,10 @@ SORT_COLUMNS = {
 JEE_SORT_COLUMNS = {
     "collegeName": "ci.College_Name",
     "branchName": "bi.Branch_Name",
-    "category": "NULL",
-    "cet2024": "AVG(cc24.Percentile)",
+    "category": "MAX(ai24.Percentile)",
+    "cet2024": "MAX(ai24.Percentile)",
     "jee2024": "MAX(ai24.Percentile)",
-    "cetChange": "AVG(cc24.Percentile) - AVG(cc22.Percentile)",
+    "cetChange": "MAX(ai24.Percentile) - MAX(ai22.Percentile)",
     "jeeChange": "MAX(ai24.Percentile) - MAX(ai22.Percentile)",
 }
 
@@ -134,7 +134,11 @@ def query_parts(filters: dict[str, Any]) -> tuple[str, list[Any], str]:
     The 2024 CAP record is the anchor.  Previous years are left joined so rows
     are still useful when a historical year was absent from the source PDFs.
     """
-    conditions = ["cc24.Year = 2024"]
+    exam = filters.get("exam", "CET")
+    is_jee = exam == "JEE"
+
+    anchor = "ai24" if is_jee else "cc24"
+    conditions = [f"{anchor}.Year = 2024"]
     params: list[Any] = []
 
     # Rules are combined left-to-right.  Every rule after the first can choose
@@ -143,6 +147,8 @@ def query_parts(filters: dict[str, Any]) -> tuple[str, list[Any], str]:
     rule_params: list[Any] = []
     for raw_rule in filters.get("rules", []):
         if not isinstance(raw_rule, dict):
+            continue
+        if is_jee and raw_rule.get("field") == "category":
             continue
         built = build_rule(raw_rule)
         if not built:
@@ -158,8 +164,7 @@ def query_parts(filters: dict[str, Any]) -> tuple[str, list[Any], str]:
         conditions.append(combined_rule)
         params.extend(rule_params)
 
-    exam = filters.get("exam", "CET")
-    cutoff_column = "ai24.Percentile" if exam == "JEE" else "cc24.Percentile"
+    cutoff_column = "ai24.Percentile" if is_jee else "cc24.Percentile"
     minimum = filters.get("minPercentile")
     maximum = filters.get("maxPercentile")
     if minimum is not None:
@@ -169,30 +174,42 @@ def query_parts(filters: dict[str, Any]) -> tuple[str, list[Any], str]:
         conditions.append(f"{cutoff_column} <= ?")
         params.append(float(maximum))
 
-    from_where = f"""
-        FROM cap_cutoffs cc24
-        INNER JOIN college_info ci ON ci.College_Code = cc24.College_Code
-        INNER JOIN branch_info bi ON bi.Branch_Code = cc24.Branch_Code
-        LEFT JOIN cap_cutoffs cc23 ON cc23.College_Code = cc24.College_Code
-            AND cc23.Branch_Code = cc24.Branch_Code AND cc23.Category = cc24.Category
-            AND cc23.CAP_Round = cc24.CAP_Round AND cc23.Year = 2023
-        LEFT JOIN cap_cutoffs cc22 ON cc22.College_Code = cc24.College_Code
-            AND cc22.Branch_Code = cc24.Branch_Code AND cc22.Category = cc24.Category
-            AND cc22.CAP_Round = cc24.CAP_Round AND cc22.Year = 2022
-        -- A choice can have several All India seat rows. Selecting one closing
-        -- cutoff prevents those rows from duplicating a college/branch result.
-        OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
-            WHERE Choice_Code = bi.Branch_Code AND CAP_Round = cc24.CAP_Round AND Year = 2024
-            ORDER BY Percentile DESC, Merit_Rank) ai24
-        OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
-            WHERE Choice_Code = bi.Branch_Code AND CAP_Round = cc24.CAP_Round AND Year = 2023
-            ORDER BY Percentile DESC, Merit_Rank) ai23
-        OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
-            WHERE Choice_Code = bi.Branch_Code AND CAP_Round = cc24.CAP_Round AND Year = 2022
-            ORDER BY Percentile DESC, Merit_Rank) ai22
-        WHERE {' AND '.join(conditions)}
-    """
-    if exam == "JEE":
+    if is_jee:
+        from_where = f"""
+            FROM all_india_cutoffs ai24
+            INNER JOIN branch_info bi ON bi.Branch_Code = ai24.Choice_Code
+            INNER JOIN (SELECT DISTINCT College_Code, Branch_Code FROM cap_cutoffs) cc_map ON cc_map.Branch_Code = ai24.Choice_Code
+            INNER JOIN college_info ci ON ci.College_Code = cc_map.College_Code
+            LEFT JOIN all_india_cutoffs ai23 ON ai23.Choice_Code = ai24.Choice_Code AND ai23.CAP_Round = ai24.CAP_Round AND ai23.Year = 2023
+            LEFT JOIN all_india_cutoffs ai22 ON ai22.Choice_Code = ai24.Choice_Code AND ai22.CAP_Round = ai24.CAP_Round AND ai22.Year = 2022
+            WHERE {' AND '.join(conditions)}
+        """
+    else:
+        from_where = f"""
+            FROM cap_cutoffs cc24
+            INNER JOIN college_info ci ON ci.College_Code = cc24.College_Code
+            INNER JOIN branch_info bi ON bi.Branch_Code = cc24.Branch_Code
+            LEFT JOIN cap_cutoffs cc23 ON cc23.College_Code = cc24.College_Code
+                AND cc23.Branch_Code = cc24.Branch_Code AND cc23.Category = cc24.Category
+                AND cc23.CAP_Round = cc24.CAP_Round AND cc23.Year = 2023
+            LEFT JOIN cap_cutoffs cc22 ON cc22.College_Code = cc24.College_Code
+                AND cc22.Branch_Code = cc24.Branch_Code AND cc22.Category = cc24.Category
+                AND cc22.CAP_Round = cc24.CAP_Round AND cc22.Year = 2022
+            -- A choice can have several All India seat rows. Selecting one closing
+            -- cutoff prevents those rows from duplicating a college/branch result.
+            OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
+                WHERE Choice_Code = bi.Branch_Code AND CAP_Round = cc24.CAP_Round AND Year = 2024
+                ORDER BY Percentile DESC, Merit_Rank) ai24
+            OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
+                WHERE Choice_Code = bi.Branch_Code AND CAP_Round = cc24.CAP_Round AND Year = 2023
+                ORDER BY Percentile DESC, Merit_Rank) ai23
+            OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
+                WHERE Choice_Code = bi.Branch_Code AND CAP_Round = cc24.CAP_Round AND Year = 2022
+                ORDER BY Percentile DESC, Merit_Rank) ai22
+            WHERE {' AND '.join(conditions)}
+        """
+
+    if is_jee:
         sort_column = JEE_SORT_COLUMNS.get(str(filters.get("sortBy")), "MAX(ai24.Percentile)")
     else:
         sort_column = SORT_COLUMNS.get(str(filters.get("sortBy")), cutoff_column)
@@ -208,13 +225,13 @@ def select_columns(exam: str = "CET") -> str:
             ci.College_Code AS collegeCode, ci.College_Name AS collegeName,
             bi.Branch_Code AS branchCode, bi.Branch_Name AS branchName,
             bi.Home_University AS homeUniversity, bi.Status AS status,
-            NULL AS category, cc24.CAP_Round AS capRound,
-            AVG(cc24.Percentile) AS cet2024, AVG(cc24.Merit_Rank) AS cetRank2024,
-            AVG(cc23.Percentile) AS cet2023, AVG(cc23.Merit_Rank) AS cetRank2023,
-            AVG(cc22.Percentile) AS cet2022, AVG(cc22.Merit_Rank) AS cetRank2022,
-            MAX(ai24.Percentile) AS jee2024, MAX(ai24.Merit_Rank) AS jeeRank2024,
-            MAX(ai23.Percentile) AS jee2023, MAX(ai23.Merit_Rank) AS jeeRank2023,
-            MAX(ai22.Percentile) AS jee2022, MAX(ai22.Merit_Rank) AS jeeRank2022
+            NULL AS category, ai24.CAP_Round AS capRound,
+            NULL AS cet2024, NULL AS cetRank2024,
+            NULL AS cet2023, NULL AS cetRank2023,
+            NULL AS cet2022, NULL AS cetRank2022,
+            MAX(ai24.Percentile) AS jee2024, MIN(ai24.Merit_Rank) AS jeeRank2024,
+            MAX(ai23.Percentile) AS jee2023, MIN(ai23.Merit_Rank) AS jeeRank2023,
+            MAX(ai22.Percentile) AS jee2022, MIN(ai22.Merit_Rank) AS jeeRank2022
         """
     return """
             ci.College_Code AS collegeCode, ci.College_Name AS collegeName,
@@ -279,8 +296,8 @@ def query():
     with database_connection() as connection:
         cursor = connection.cursor()
         if exam == "JEE":
-            count_sql = f"SELECT COUNT_BIG(*) FROM (SELECT 1 AS col {from_where} GROUP BY cc24.College_Code, cc24.Branch_Code, cc24.CAP_Round) AS t"
-            group_by = "GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, cc24.CAP_Round"
+            count_sql = f"SELECT COUNT_BIG(*) FROM (SELECT 1 AS col {from_where} GROUP BY ci.College_Code, bi.Branch_Code, ai24.CAP_Round) AS t"
+            group_by = "GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, ai24.CAP_Round"
         else:
             count_sql = f"SELECT COUNT_BIG(*) AS total {from_where}"
             group_by = ""
@@ -316,6 +333,8 @@ def college_details(college_code: int):
         for raw_rule in payload.get("rules", []):
             if not isinstance(raw_rule, dict) or raw_rule.get("field") not in allowed:
                 continue
+            if exam == "JEE" and raw_rule.get("field") == "category":
+                continue
             built = build_rule(raw_rule, COLLEGE_RULE_COLUMNS)
             if not built:
                 continue
@@ -327,7 +346,8 @@ def college_details(college_code: int):
                 combined = f"({combined} {joiner} {predicate})"
             rule_params.extend(values)
 
-    conditions = ["cc.College_Code = ?", "cc.Year BETWEEN 2022 AND 2024"]
+    anchor = "ai" if exam == "JEE" else "cc"
+    conditions = [f"{'ci' if exam == 'JEE' else 'cc'}.College_Code = ?", f"{anchor}.Year BETWEEN 2022 AND 2024"]
     params: list[Any] = [college_code]
     if combined:
         conditions.append(combined)
@@ -335,20 +355,18 @@ def college_details(college_code: int):
     if exam == "JEE":
         sql = f"""
             SELECT ci.College_Code AS collegeCode, ci.College_Name AS collegeName,
-                cc.Year AS year, cc.CAP_Round AS capRound, bi.Branch_Code AS branchCode,
+                ai.Year AS year, ai.CAP_Round AS capRound, bi.Branch_Code AS branchCode,
                 bi.Branch_Name AS branchName, bi.Status AS branchStatus,
                 bi.Home_University AS homeUniversity, NULL AS category,
-                AVG(cc.Percentile) AS cetPercentile, AVG(cc.Merit_Rank) AS cetRank,
-                MAX(ai.Percentile) AS jeePercentile, MAX(ai.Merit_Rank) AS jeeRank
-            FROM cap_cutoffs cc
-            INNER JOIN college_info ci ON ci.College_Code = cc.College_Code
-            INNER JOIN branch_info bi ON bi.Branch_Code = cc.Branch_Code
-            OUTER APPLY (SELECT TOP 1 Percentile, Merit_Rank FROM all_india_cutoffs
-                WHERE Choice_Code = cc.Branch_Code AND CAP_Round = cc.CAP_Round AND Year = cc.Year
-                ORDER BY Percentile DESC, Merit_Rank) ai
+                NULL AS cetPercentile, NULL AS cetRank,
+                MAX(ai.Percentile) AS jeePercentile, MIN(ai.Merit_Rank) AS jeeRank
+            FROM all_india_cutoffs ai
+            INNER JOIN branch_info bi ON bi.Branch_Code = ai.Choice_Code
+            INNER JOIN (SELECT DISTINCT College_Code, Branch_Code FROM cap_cutoffs) cc_map ON cc_map.Branch_Code = ai.Choice_Code
+            INNER JOIN college_info ci ON ci.College_Code = cc_map.College_Code
             WHERE {' AND '.join(conditions)}
-            GROUP BY ci.College_Code, ci.College_Name, cc.Year, cc.CAP_Round, bi.Branch_Code, bi.Branch_Name, bi.Status, bi.Home_University
-            ORDER BY bi.Branch_Name, cc.Year DESC
+            GROUP BY ci.College_Code, ci.College_Name, ai.Year, ai.CAP_Round, bi.Branch_Code, bi.Branch_Name, bi.Status, bi.Home_University
+            ORDER BY bi.Branch_Name, ai.Year DESC
         """
     else:
         sql = f"""
@@ -427,7 +445,7 @@ def predict():
     with database_connection() as connection:
         cursor = connection.cursor()
         if exam == "JEE":
-            group_by = "GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, cc24.CAP_Round"
+            group_by = "GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, ai24.CAP_Round"
         else:
             group_by = ""
         cursor.execute(f"SELECT TOP {MAX_PREDICTION_RESULTS} {select_columns(exam)} {from_where} {group_by} {order_by}", params)
