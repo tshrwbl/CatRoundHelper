@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">CAP Compass</title>
+  <rect width="512" height="512" rx="104" fill="#0f172a"/>
+  <path d="M256 76c99 0 180 81 180 180s-81 180-180 180S76 355 76 256 157 76 256 76Z" fill="#1e293b" stroke="#a78bfa" stroke-width="24"/>
+  <path d="m326 186-45 103-95 43 43-95 97-51Z" fill="#2dd4bf"/>
+  <circle cx="256" cy="256" r="22" fill="#f8fafc"/>
+  <path d="M256 116v35M256 361v35M116 256h35M361 256h35" stroke="#c4b5fd" stroke-width="18" stroke-linecap="round"/>
+</svg>

@@ -1,45 +1,69 @@
 # CAP Compass
 
-A local explorer for Maharashtra engineering CAP cutoffs from 2022–2024. It
-combines a Flask/SQL Server API with a Vite React interface for filtering,
-historical trends, and percentile-based recommendations.
+CAP Compass is a public, offline-capable explorer for Maharashtra engineering
+CAP cutoffs from 2022–2024. It is a static React application: the browser
+downloads a read-only SQLite snapshot and runs filtering, trends, college
+details, and predictions locally. The snapshot is intentionally public because
+GitHub Pages serves it as a normal static file.
 
-## Run locally
+## Local setup
 
-1. Ensure the local SQL Server database is named `CollegeData` and has the
-   tables in `schema.sql` (plus `migration.sql` when applicable).
-2. Install and run the API:
+The one-time exporter reads the local `CollegeData` SQL Server database. It
+uses the same `SQL_CONNECTION_STRING` environment variable as the former
+Flask API, falling back to a local trusted connection.
 
-   ```powershell
-   cd backend
-   python -m pip install -r requirements.txt
-   python server.py
-   ```
+```powershell
+python -m pip install -r backend/requirements.txt
+python Scripts/export_sqlserver_to_sqlite.py
 
-3. In a second terminal, start the interface:
+cd visualization
+npm ci
+npm run dev
+```
 
-   ```powershell
-   cd visualization
-   npm install
-   npm run dev
-   ```
+Open the Vite address printed by the terminal. The database must be exported
+before `npm run build`; the build deliberately fails if `public/data.sqlite` is
+missing or empty.
 
-Open `http://localhost:5173`. Vite forwards `/api` requests to Flask on port
-5000. To use a different SQL connection, set `SQL_CONNECTION_STRING` before
-starting `backend/server.py`.
+## Build and preview
 
-## Explorer controls
+```powershell
+cd visualization
+npm run build
+npm run preview
+```
 
-- The table is paginated by the API. Use the footer to move between pages and
-  choose 10, 25, 50, or 100 rows per page.
-- Add advanced rules for category, university, status, branch, or college.
-  Rules also support college and branch codes. Each rule explicitly includes
-  or excludes matches, with `Contains`, `Is`, or `In list` matching. Lists can
-  be picked from a multi-select dropdown or pasted as comma-separated text.
-  Each rule after the first can be joined with `AND` or `OR`; filter templates
-  are saved in the browser for later reuse.
-- A trend chart displays both CET and JEE percentile histories for the selected
-  college/branch/category.
-- Click a sortable explorer column heading to reorder all matching records.
-  Open **College** on any result for a category-wise branch overview, your
-  percentile fit, the college's cutoff movement, and competitiveness charts.
+The production build includes `data.sqlite`, SQLite WebAssembly, and a Workbox
+service worker. After one successful online visit, refresh the app in offline
+mode to test the cached dashboard. A first-ever visit still needs a network
+connection to download the app and database.
+
+## Refreshing public data
+
+1. Update the local SQL Server data with the existing PDF scraper workflow.
+2. Run `python Scripts/export_sqlserver_to_sqlite.py`.
+3. Review the printed row counts and `SQLite integrity check: ok` result.
+4. Run `cd visualization; npm run build`.
+5. Commit the regenerated `visualization/public/data.sqlite` with the related
+   source changes and push to `main`.
+
+The exporter writes a temporary file, verifies every source and destination
+table count, checks SQLite integrity, then atomically replaces the public
+snapshot. It does not modify SQL Server.
+
+## GitHub Pages
+
+The repository includes `.github/workflows/deploy-pages.yml`. In GitHub,
+select **Settings → Pages → Build and deployment → GitHub Actions**. A push to
+`main` then builds `visualization/` and deploys `visualization/dist` to:
+
+`https://tshrwbl.github.io/CatRoundHelper/`
+
+The Vite base path is intentionally `/CatRoundHelper/`; changing the repository
+name also requires changing `visualization/vite.config.js`.
+
+## Transitional backend
+
+`backend/server.py` remains temporarily as a parity reference. The shipped
+frontend does not call it. Remove it only after comparing representative CET
+and JEE results with the SQLite dashboard.
