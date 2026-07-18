@@ -54,7 +54,7 @@ COLLEGE_RULE_COLUMNS = {
 SORT_COLUMNS = {
     "collegeName": "ci.College_Name", "branchName": "bi.Branch_Name", "category": "cc24.Category",
     "cet2024": "cc24.Percentile", "jee2024": "ai24.Percentile",
-    "cetChange": "cc24.Percentile - cc22.Percentile",
+    "cetChange": "cc24.Percentile - cc22.Percentile", "jeeChange": "ai24.Percentile - ai22.Percentile",
 }
 
 
@@ -220,9 +220,23 @@ def metadata():
         "branches": scalar_list("SELECT DISTINCT Branch_Name FROM branch_info WHERE Branch_Name IS NOT NULL ORDER BY Branch_Name"),
         "branchCodes": scalar_list("SELECT DISTINCT Branch_Code FROM branch_info ORDER BY Branch_Code"),
         "colleges": scalar_list("SELECT DISTINCT College_Name FROM college_info WHERE College_Name IS NOT NULL ORDER BY College_Name"),
+        "collegeOptions": college_options(),
         "collegeCodes": scalar_list("SELECT CONVERT(varchar(20), College_Code) FROM college_info ORDER BY College_Code"),
         "statuses": scalar_list("SELECT DISTINCT Status FROM branch_info WHERE Status IS NOT NULL ORDER BY Status"),
     })
+
+
+def college_options() -> list[dict[str, Any]]:
+    """Return stable code/name pairs for the College page search picker."""
+    with database_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT College_Code AS code, College_Name AS name
+            FROM college_info
+            WHERE College_Name IS NOT NULL
+            ORDER BY College_Name, College_Code
+        """)
+        return rows_as_dicts(cursor)
 
 
 @app.post("/api/query")
@@ -260,9 +274,10 @@ def college_details(college_code: int):
         return jsonify({"error": "Percentile must be a number."}), 400
     exam = "JEE" if str(payload.get("exam", "CET")).upper() == "JEE" else "CET"
 
-    # Only category, branch name, and branch code remain meaningful once a
-    # college is selected. Other active explorer filters must not hide it.
-    allowed = {"category", "branch", "branchCode"}
+    # The College page deliberately supports only fields visible in its data.
+    # Explorer-specific filters (college, university, and percentile ranges)
+    # must not unexpectedly hide rows in a selected college.
+    allowed = {"category", "branch", "branchCode", "status"}
     combined: str | None = None
     rule_params: list[Any] = []
     if apply_active_filters:
