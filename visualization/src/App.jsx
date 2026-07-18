@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, Building2, Compass, LineChart, LoaderCircle, Plus, Search, SlidersHorizontal, Sparkles, Sun, Moon, X } from 'lucide-react'
+import { useEffect, useMemo, useState, useRef } from 'react'
+import { BarChart3, Building2, Compass, LineChart, LoaderCircle, Plus, Search, SlidersHorizontal, Sparkles, Sun, Moon, X, Save, Download, Upload, Check } from 'lucide-react'
 import {
   Bar, BarChart as RechartsBarChart, CartesianGrid, Legend, Line, LineChart as RechartsLineChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -162,26 +162,250 @@ function Predictor({ filters, percentiles }) {
   </section>
 }
 
+function ValueSelectModal({ isOpen, onClose, options, selected, onSelect, fieldName }) {
+  const [search, setSearch] = useState('')
+  if (!isOpen) return null
+
+  const filteredOptions = options.filter((option) =>
+    String(option).toLowerCase().includes(search.toLowerCase())
+  )
+
+  const toggleOption = (option) => {
+    const isSelected = selected.includes(option)
+    const nextSelected = isSelected
+      ? selected.filter((item) => item !== option)
+      : [...selected, option]
+    onSelect(nextSelected)
+  }
+
+  return (
+    <div className="modal-backdrop sub-modal-backdrop" style={{ zIndex: 30 }} onClick={(e) => e.stopPropagation()}>
+      <section className="filter-modal value-select-modal" style={{ maxWidth: '600px', maxHeight: '85vh', height: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <header style={{ padding: '20px 24px 14px' }}>
+          <div>
+            <p className="eyebrow">Multi-value selector</p>
+            <h2 style={{ fontSize: '20px', margin: '4px 0' }}>Select {fieldName}</h2>
+            <p style={{ margin: 0 }}>Choose values to include/exclude ({selected.length} selected)</p>
+          </div>
+          <button className="close-modal" type="button" onClick={onClose} style={{ padding: '6px 10px', fontSize: '12px' }}>
+            <X size={16} /> Close
+          </button>
+        </header>
+
+        {selected.length > 0 && (
+          <div className="selected-preview-bar">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {selected.map((item) => (
+                <span key={item} className="tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', fontSize: '11px', margin: '0' }}>
+                  {item}
+                  <button
+                    type="button"
+                    onClick={() => toggleOption(item)}
+                    style={{ background: 'none', border: 0, padding: 0, display: 'inline-flex', color: 'var(--remove-rule-color)', cursor: 'pointer' }}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="search-box" style={{ padding: '14px 24px 8px' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              value={search}
+              placeholder={`Search ${filteredOptions.length} of ${options.length} options...`}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ paddingLeft: '36px', height: '38px', borderRadius: '8px' }}
+            />
+          </div>
+        </div>
+
+        <div className="modal-rules" style={{ flex: 1, overflowY: 'auto', padding: '8px 24px', display: 'flex', flexDirection: 'column', gap: '6px', minHeight: '200px' }}>
+          {filteredOptions.length === 0 ? (
+            <div className="empty" style={{ minHeight: '120px' }}>No options match your search.</div>
+          ) : (
+            filteredOptions.map((option) => {
+              const isSelected = selected.includes(option)
+              return (
+                <div key={option} className={`value-option-row ${isSelected ? 'selected' : ''}`}>
+                  <span>{option}</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleOption(option)}
+                    className={isSelected ? 'remove-rule' : 'add-rule'}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      alignSelf: 'center',
+                      width: 'auto',
+                      minWidth: '70px',
+                      justifyContent: 'center',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {isSelected ? '-' : '+'} {isSelected ? 'Remove' : 'Select'}
+                  </button>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        <footer style={{ padding: '14px 24px', background: 'var(--modal-footer-bg)', borderTop: '1px solid var(--modal-footer-border)', display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="primary" type="button" onClick={onClose} style={{ padding: '8px 16px', fontSize: '13px' }}>Done</button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
 function FilterRule({ rule, index, metadata, fields = ruleFields, onChange, onRemove }) {
+  const [isSelectModalOpen, setIsSelectModalOpen] = useState(false)
   const field = fields.find(([value]) => value === rule.field) || fields[0]
   const options = metadata[field[2]] || []
-  const selected = Array.isArray(rule.value) ? rule.value : []
+
+  const selected = useMemo(() => {
+    if (Array.isArray(rule.value)) return rule.value
+    if (typeof rule.value === 'string' && rule.value) return rule.value.split(',').map((s) => s.trim()).filter(Boolean)
+    return []
+  }, [rule.value])
+
+  const hasInvalidOption = useMemo(() => {
+    if (selected.length === 0) return false
+    if (options.length === 0) return false
+    return selected.some((val) => !options.includes(val))
+  }, [selected, options])
+
+  const handleModalSelect = (nextSelected) => {
+    onChange({
+      ...rule,
+      value: nextSelected,
+      listValue: nextSelected.join(', ')
+    })
+  }
+
+  const handleListValueChange = (event) => {
+    const nextListValue = event.target.value
+    const parsed = nextListValue.split(',').map((val) => val.trim()).filter(Boolean)
+    onChange({
+      ...rule,
+      listValue: nextListValue,
+      value: parsed
+    })
+  }
+
   const matcher = rule.matcher || 'contains'
   return <article className="modal-rule">
     <div className="rule-heading"><span>Filter {index + 1}</span>{index > 0 && <select className="join" value={rule.join || 'AND'} onChange={(event) => onChange({ ...rule, join: event.target.value })}><option>AND</option><option>OR</option></select>}<button className="remove-rule" title="Remove filter" onClick={onRemove}><X size={15} /></button></div>
     <div className="rule-inputs"><label>Field<select value={field[0]} onChange={(event) => onChange({ ...rule, field: event.target.value, value: [], listValue: '' })}>{fields.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Match<select value={matcher} onChange={(event) => onChange({ ...rule, matcher: event.target.value, value: event.target.value === 'in' ? [] : '', listValue: '' })}>{matchers.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Condition<select value={rule.mode || 'include'} onChange={(event) => onChange({ ...rule, mode: event.target.value })}><option value="include">Include matches</option><option value="exclude">Exclude matches</option></select></label></div>
     {matcher === 'contains' && <label className="rule-value">Text to find<input value={typeof rule.value === 'string' ? rule.value : ''} placeholder="Matches like %this text%" onChange={(event) => onChange({ ...rule, value: event.target.value })} /></label>}
     {matcher === 'is' && <label className="rule-value">Select one value<select value={typeof rule.value === 'string' ? rule.value : ''} onChange={(event) => onChange({ ...rule, value: event.target.value })}><option value="">Choose a value…</option>{options.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
-    {matcher === 'in' && <div className="list-values"><label>Pick multiple values<select multiple value={selected} onChange={(event) => onChange({ ...rule, value: Array.from(event.target.selectedOptions, (option) => option.value) })}>{options.map((item) => <option value={item} key={item}>{item}</option>)}</select><small>Hold Ctrl/Cmd to select several values.</small></label><label>Or paste a comma-separated list<input value={rule.listValue || ''} placeholder="abc, cbd, 1234" onChange={(event) => onChange({ ...rule, listValue: event.target.value })} /><small>Typed values and selections are combined.</small></label></div>}
+    {matcher === 'in' && (
+      <div className="list-values">
+        <label>
+          Pick multiple values
+          <button
+            type="button"
+            className="secondary"
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '9px 10px', height: '40px' }}
+            onClick={() => setIsSelectModalOpen(true)}
+          >
+            <Plus size={16} /> Select values ({selected.length} selected)
+          </button>
+          <small>Click to open the multi-value selector dialog.</small>
+        </label>
+        <label>
+          Or paste a comma-separated list
+          <input
+            value={rule.listValue || ''}
+            placeholder="abc, cbd, 1234"
+            onChange={handleListValueChange}
+            className={hasInvalidOption ? 'invalid-input' : ''}
+            style={{ height: '40px' }}
+          />
+          <small style={{ color: hasInvalidOption ? '#ef4444' : 'var(--small-muted-color)', transition: 'color 0.3s' }}>
+            {hasInvalidOption
+              ? 'Warning: Some typed values do not match any available options.'
+              : 'Typed values and selector choices are kept in sync.'}
+          </small>
+        </label>
+
+        <ValueSelectModal
+          isOpen={isSelectModalOpen}
+          onClose={() => setIsSelectModalOpen(false)}
+          options={options}
+          selected={selected}
+          onSelect={handleModalSelect}
+          fieldName={field[1]}
+        />
+      </div>
+    )}
   </article>
 }
 
 function FilterModal({ rules, metadata, templates, fields = ruleFields, title = 'Build your exact shortlist', description = 'Each filter can include or exclude matching records. Filters run left to right with AND/OR.', onApply, onClose, onSaveTemplate }) {
   const [draft, setDraft] = useState(rules); const [name, setName] = useState('')
+  const fileInputRef = useRef(null)
+  const [exportStatus, setExportStatus] = useState('')
+
+  const handleExport = () => {
+    const json = JSON.stringify(draft, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'cap-compass-filters.json'
+    a.click()
+    URL.revokeObjectURL(url)
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(json).then(() => {
+        setExportStatus('Copied & Downloaded!')
+        setTimeout(() => setExportStatus(''), 2000)
+      }).catch(() => {
+        setExportStatus('Downloaded!')
+        setTimeout(() => setExportStatus(''), 2000)
+      })
+    } else {
+      setExportStatus('Downloaded!')
+      setTimeout(() => setExportStatus(''), 2000)
+    }
+  }
+
+  const handleImportFile = (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target.result)
+        const rulesArray = Array.isArray(imported) ? imported : (imported.rules || [])
+        if (!Array.isArray(rulesArray)) {
+          alert('Invalid format: filters must be a JSON array of rules, or an object containing a rules array.')
+          return
+        }
+        const validated = rulesArray.filter((r) => r && typeof r === 'object' && r.field)
+        if (validated.length === 0 && rulesArray.length > 0) {
+          alert('Could not find any valid filter rules in the file.')
+          return
+        }
+        const filtered = validated.filter((r) => fields.some(([val]) => val === r.field))
+        setDraft(filtered)
+      } catch (err) {
+        alert('Failed to parse JSON: ' + err.message)
+      }
+    }
+    reader.readAsText(file)
+    event.target.value = ''
+  }
+
   const update = (index, next) => setDraft((current) => current.map((rule, ruleIndex) => ruleIndex === index ? next : rule))
   const add = () => setDraft((current) => [...current, { field: fields[0][0], matcher: 'in', mode: 'include', value: [], listValue: '', join: 'AND' }])
   const remove = (index) => setDraft((current) => current.filter((_, ruleIndex) => ruleIndex !== index))
-  return <div className="modal-backdrop" role="presentation"><section className="filter-modal" role="dialog" aria-modal="true" aria-label="Advanced filter builder"><header><div><p className="eyebrow">Advanced query builder</p><h2>{title}</h2><p>{description}</p></div><button className="close-modal" onClick={onClose}><X /> Close</button></header><div className="template-strip"><label>Saved templates<select defaultValue="" onChange={(event) => { const template = templates.find((item) => item.id === event.target.value); if (template) setDraft(template.rules.filter((rule) => fields.some(([value]) => value === rule.field))) }}><option value="">Load a saved template…</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><div><input value={name} placeholder="Template name" onChange={(event) => setName(event.target.value)} /><button className="add-rule" disabled={!name.trim()} onClick={() => { onSaveTemplate(name.trim(), draft); setName('') }}>Save template</button></div></div><div className="modal-rules">{draft.length ? draft.map((rule, index) => <FilterRule key={index} rule={rule} index={index} metadata={metadata} fields={fields} onChange={(next) => update(index, next)} onRemove={() => remove(index)} />) : <div className="empty compact">No filters yet. Add one to narrow or exclude results.</div>}</div><footer><button className="add-rule" onClick={add}><Plus size={16} /> Add filter</button><div><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => { onApply(draft); onClose() }}>Apply filters</button></div></footer></section></div>
+  return <div className="modal-backdrop" role="presentation"><section className="filter-modal" role="dialog" aria-modal="true" aria-label="Advanced filter builder"><header><div><p className="eyebrow">Advanced query builder</p><h2>{title}</h2><p>{description}</p></div><button className="close-modal" onClick={onClose}><X /> Close</button></header><div className="template-strip"><label className="template-field"><span>Saved templates</span><select defaultValue="" onChange={(event) => { const template = templates.find((item) => item.id === event.target.value); if (template) setDraft(template.rules.filter((rule) => fields.some(([value]) => value === rule.field))) }}><option value="">Load a saved template…</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label className="template-field"><span>Save template</span><div className="template-input-group"><input value={name} placeholder="Template name" onChange={(event) => setName(event.target.value)} /><button className="template-btn" disabled={!name.trim()} onClick={() => { onSaveTemplate(name.trim(), draft); setName('') }} title="Save template" aria-label="Save template"><Save size={16} /></button></div></label><label className="template-field template-share-column"><span>Share</span><div className="template-input-group"><button className="template-btn" type="button" onClick={handleExport} title={exportStatus || "Export templates"} aria-label={exportStatus || "Export templates"}>{exportStatus ? <Check size={16} style={{ color: 'var(--diff-positive)' }} /> : <Download size={16} />}</button><button className="template-btn" type="button" onClick={() => fileInputRef.current?.click()} title="Import templates" aria-label="Import templates"><Upload size={16} /></button><input type="file" ref={fileInputRef} accept=".json" onChange={handleImportFile} style={{ display: 'none' }} /></div></label></div><div className="modal-rules">{draft.length ? draft.map((rule, index) => <FilterRule key={index} rule={rule} index={index} metadata={metadata} fields={fields} onChange={(next) => update(index, next)} onRemove={() => remove(index)} />) : <div className="empty compact">No filters yet. Add one to narrow or exclude results.</div>}</div><footer><button className="add-rule" onClick={add}><Plus size={16} /> Add filter</button><div><button className="secondary" onClick={onClose}>Cancel</button><button className="primary" onClick={() => { onApply(draft); onClose() }}>Apply filters</button></div></footer></section></div>
 }
 
 export default function App() {
@@ -220,7 +444,7 @@ export default function App() {
   const selectTrend = async (row) => { setSelected(row); setTab('trends'); setTrendLoading(true); try { setTrendData(await getTrends({ collegeCode: row.collegeCode, branchCode: row.branchCode, category: row.category || 'GOPENS', capRound: row.capRound })) } catch (e) { setError(e.message); setTrendData({ cet: [], jee: [] }) } finally { setTrendLoading(false) } }
   const summary = useMemo(() => `${total.toLocaleString()} matching options`, [total])
   return <main className="app-shell"><aside className="sidebar"><div className="brand"><Compass /><span>CAP <b>Compass</b></span><button className="theme-toggle" onClick={toggleTheme} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button></div><p className="sidebar-copy">Maharashtra engineering cutoff intelligence, 2022–24.</p><div className="filter-group"><label>Exam</label><div className="segmented">{['CET', 'JEE'].map((exam) => <button key={exam} onClick={() => update('exam', exam)} className={filters.exam === exam ? 'active' : ''}>{exam}</button>)}</div></div><label>CET percentile<input type="number" min="0" max="100" step="0.01" value={candidatePercentiles.CET} onChange={(event) => updatePercentile('CET', event.target.value)} /></label><label>JEE percentile<input type="number" min="0" max="100" step="0.01" value={candidatePercentiles.JEE} onChange={(event) => updatePercentile('JEE', event.target.value)} /></label><label>Percentile range <span>{filters.minPercentile}–{filters.maxPercentile}</span><div className="range-inputs"><input type="number" min="0" max="100" value={filters.minPercentile} onChange={(e) => update('minPercentile', e.target.value)} /><input type="number" min="0" max="100" value={filters.maxPercentile} onChange={(e) => update('maxPercentile', e.target.value)} /></div></label><section className="advanced-filters"><label>Advanced filters</label><p>{filters.rules.length ? `${filters.rules.length} active filter${filters.rules.length === 1 ? '' : 's'}` : 'No active filters'}</p><button className="open-filter-builder" onClick={() => setFilterModalOpen(true)}><SlidersHorizontal size={16} /> Open filter builder</button></section></aside>
-    <section className="content"><header><div><p className="eyebrow">Admission decision workspace</p><h1>Cutoff, made clear.</h1></div><div className="data-note"><BarChart3 size={17} /> {summary}</div></header><nav className="tabs">{[['explorer', 'Explorer', Search], ['trends', 'Trends', LineChart], ['college', 'College', Building2], ['predictor', 'Predictor', Sparkles]].map(([id, name, Icon]) => <button key={id} onClick={() => setTab(id)} className={tab === id ? 'active' : ''}><Icon size={16} /> {name}</button>)}</nav>{updateAvailable && <div className="update banner">A newer offline database is ready. <button onClick={() => activatePendingUpdate()}>Reload now</button></div>}{error && <div className="error banner">{error}</div>}<div className="panel">{tab === 'explorer' && <Explorer rows={rows} loading={loading} onSelectTrend={selectTrend} onOpenCollege={openCollege} sort={sort} onSort={changeSort} percentiles={candidatePercentiles} exam={filters.exam} pagination={{ page, pageSize, total, onPage: setPage, onPageSize: (size) => { setPageSize(size); setPage(1) } }} />}{tab === 'trends' && <Trends selected={selected} data={trendData} loading={trendLoading} />}{tab === 'college' && <CollegePage college={college} data={collegeData} collegeRules={collegeRules} onEditFilters={() => setCollegeFilterModalOpen(true)} percentile={candidatePercentiles[filters.exam]} percentiles={candidatePercentiles} exam={filters.exam} collegeOptions={metadata.collegeOptions || []} onSelectCollege={selectCollege} />}{tab === 'predictor' && <Predictor filters={filters} percentiles={candidatePercentiles} />}</div></section>
+    <section className="content"><div className="tabs-container"><nav className="tabs">{[['explorer', 'Explorer', Search], ['trends', 'Trends', LineChart], ['college', 'College', Building2], ['predictor', 'Predictor', Sparkles]].map(([id, name, Icon]) => <button key={id} onClick={() => setTab(id)} className={tab === id ? 'active' : ''}><Icon size={16} /> {name}</button>)}</nav><div className="data-note"><BarChart3 size={17} /> {summary}</div></div>{updateAvailable && <div className="update banner">A newer offline database is ready. <button onClick={() => activatePendingUpdate()}>Reload now</button></div>}{error && <div className="error banner">{error}</div>}<div className="panel">{tab === 'explorer' && <Explorer rows={rows} loading={loading} onSelectTrend={selectTrend} onOpenCollege={openCollege} sort={sort} onSort={changeSort} percentiles={candidatePercentiles} exam={filters.exam} pagination={{ page, pageSize, total, onPage: setPage, onPageSize: (size) => { setPageSize(size); setPage(1) } }} />}{tab === 'trends' && <Trends selected={selected} data={trendData} loading={trendLoading} />}{tab === 'college' && <CollegePage college={college} data={collegeData} collegeRules={collegeRules} onEditFilters={() => setCollegeFilterModalOpen(true)} percentile={candidatePercentiles[filters.exam]} percentiles={candidatePercentiles} exam={filters.exam} collegeOptions={metadata.collegeOptions || []} onSelectCollege={selectCollege} />}{tab === 'predictor' && <Predictor filters={filters} percentiles={candidatePercentiles} />}</div></section>
     {filterModalOpen && <FilterModal rules={filters.rules} metadata={metadata} templates={templates} onApply={applyRules} onClose={() => setFilterModalOpen(false)} onSaveTemplate={saveTemplate} />}
     {collegeFilterModalOpen && <FilterModal rules={collegeRules} metadata={metadata} templates={templates} fields={collegeRuleFields} title="Filter this college" description="Only branch name, branch code, branch status, and category can filter a college overview." onApply={setCollegeRules} onClose={() => setCollegeFilterModalOpen(false)} onSaveTemplate={saveTemplate} />}</main>
 }
