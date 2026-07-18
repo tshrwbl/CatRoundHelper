@@ -1,7 +1,7 @@
 
 SELECT DISTINCT Home_University
 FROM branch_info
-WHERE COALESCE(Home_University, '') NOT IN ('Sant Gadge Baba Amravati University','Punyashlok Ahilyadevi Holkar Solapur University','Gondwana University','Rashtrasant Tukadoji Maharaj Nagpur University','Dr. Babasaheb Ambedkar Marathwada University', 'Shivaji University','Kavayitri Bahinabai Chaudhari North Maharashtra University, Jalgaon','Dr. Babasaheb Ambedkar Technological University,Lonere','Swami Ramanand Teerth Marathwada University, Nanded');
+WHERE COALESCE(Home_University, '') NOT IN ('Mumbai University','Sant Gadge Baba Amravati University','Punyashlok Ahilyadevi Holkar Solapur University','Gondwana University','Rashtrasant Tukadoji Maharaj Nagpur University','Dr. Babasaheb Ambedkar Marathwada University', 'Shivaji University','Kavayitri Bahinabai Chaudhari North Maharashtra University, Jalgaon','Dr. Babasaheb Ambedkar Technological University,Lonere','Swami Ramanand Teerth Marathwada University, Nanded')
 
 
 Select DISTINCT [Status]

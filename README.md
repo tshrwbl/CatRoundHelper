@@ -27,3 +27,19 @@ historical trends, and percentile-based recommendations.
 Open `http://localhost:5173`. Vite forwards `/api` requests to Flask on port
 5000. To use a different SQL connection, set `SQL_CONNECTION_STRING` before
 starting `backend/server.py`.
+
+## Explorer controls
+
+- The table is paginated by the API. Use the footer to move between pages and
+  choose 10, 25, 50, or 100 rows per page.
+- Add advanced rules for category, university, status, branch, or college.
+  Rules also support college and branch codes. Each rule explicitly includes
+  or excludes matches, with `Contains`, `Is`, or `In list` matching. Lists can
+  be picked from a multi-select dropdown or pasted as comma-separated text.
+  Each rule after the first can be joined with `AND` or `OR`; filter templates
+  are saved in the browser for later reuse.
+- A trend chart displays both CET and JEE percentile histories for the selected
+  college/branch/category.
+- Click a sortable explorer column heading to reorder all matching records.
+  Open **College** on any result for a category-wise branch overview, your
+  percentile fit, the college's cutoff movement, and competitiveness charts.
