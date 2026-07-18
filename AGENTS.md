@@ -2,28 +2,28 @@
 
 ## Project Structure
 
-- `backend/server.py` contains the Flask API, SQL query construction, and CollegeData integration; dependencies are in `backend/requirements.txt`.
-- `visualization/src/` contains the React UI (`App.jsx`, `App.css`, and `main.jsx`). Vite configuration and frontend scripts are in `visualization/`.
-- `schema.sql`, `queries.sql`, and `helper.sql` document database structure and useful SQL. `Artifact/` stores source PDFs and CSV data used by the scrapers.
+- `backend/server.py` is a temporary Flask/SQL Server parity reference; dependencies are in `backend/requirements.txt`.
+- `visualization/src/` contains the React UI, browser SQLite service (`db.js`), and PWA registration. Vite configuration and frontend scripts are in `visualization/`.
+- `Scripts/sqlite_schema.sql` and `Scripts/export_sqlserver_to_sqlite.py` create the public dashboard snapshot. `schema.sql`, `queries.sql`, and `helper.sql` document the source database. `Artifact/` stores source PDFs and CSV data used by the scrapers.
 - `pdfScrapper.py` and `pdfAllIndiaScrapper.py` parse cutoff source files.
 
 ## Build, Test, and Development Commands
 
-From `backend/`, install dependencies and start the API:
+Export the local SQL Server data before running or building the frontend:
 
 ```powershell
-python -m pip install -r requirements.txt
-python server.py
+python -m pip install -r backend/requirements.txt
+python Scripts/export_sqlserver_to_sqlite.py
 ```
 
 From `visualization/`, install packages and start the Vite development server:
 
 ```powershell
-npm install
+npm ci
 npm run dev
 ```
 
-Use `npm run build` to create a production bundle and `npm run preview` to serve it locally. The frontend proxies `/api` to Flask on port 5000. Set `SQL_CONNECTION_STRING` when the default local SQL Server connection is unsuitable.
+Use `npm run build` to create a production bundle and `npm run preview` to serve it locally. The frontend queries its in-memory SQLite snapshot and does not proxy `/api`. Set `SQL_CONNECTION_STRING` when the default local SQL Server connection is unsuitable.
 
 ## Coding Style & Naming
 
@@ -31,7 +31,7 @@ Use four spaces in Python and two spaces in JavaScript/CSS. Keep React component
 
 ## Testing Guidelines
 
-No automated test framework is currently configured. At minimum, run `npm run build`, compile-check Python changes, and manually exercise Explorer filters, sorting, College data, trends, and API error paths against a working `CollegeData` database.
+No automated test framework is currently configured. At minimum, run the SQLite exporter, `npm run build`, compile-check Python changes, and manually exercise Explorer filters, sorting, College data, trends, predictions, update handling, and offline reloads.
 
 ## Commit & Pull Request Guidelines
 
@@ -39,4 +39,4 @@ Existing history uses short, informal summaries such as `Added college page` and
 
 ## Configuration & Data Safety
 
-Do not commit credentials, local connection strings, generated `dist/` output, or scraped database files. Treat PDFs and SQL data as source inputs; validate parser changes against representative files from `Artifact/`.
+Do not commit credentials, local connection strings, or generated `dist/` output. `visualization/public/data.sqlite` is the intentional public GitHub Pages release asset; validate its exporter row counts and integrity check before committing it. Treat PDFs and SQL data as source inputs; validate parser changes against representative files from `Artifact/`.

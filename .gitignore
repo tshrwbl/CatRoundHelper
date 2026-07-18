@@ -28,6 +28,7 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+!visualization/public/data.sqlite
 
 *.log
 
