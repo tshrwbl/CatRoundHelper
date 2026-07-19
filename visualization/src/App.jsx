@@ -7,7 +7,7 @@ import {
 import { getCollegeDetails, getExplorerResults, getMetadata, getPredictions, getTrends } from './db'
 import { activatePendingUpdate } from './pwa'
 
-import obcMaleCsItRules from '../public/OBC_Male_CS_IT.json'
+import obcMaleCsItRules from './presets/OBC_Male_CS_IT.json'
 
 const DEFAULT_PRESETS = [
   {
