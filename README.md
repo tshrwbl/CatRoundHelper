@@ -3,8 +3,7 @@
 CAP Compass is a public, offline-capable explorer for Maharashtra engineering
 CAP cutoffs from 2022–2024. It is a static React application: the browser
 downloads a read-only SQLite snapshot and runs filtering, trends, college
-details, and predictions locally. The snapshot is intentionally public because
-GitHub Pages serves it as a normal static file.
+details, and predictions locally. Visit https://tshrwbl.github.io/CatRoundHelper/
 
 ## Local setup
 
