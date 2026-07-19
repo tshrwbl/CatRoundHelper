@@ -47,6 +47,26 @@ const JEE_SORT_COLUMNS = {
   jeeChange: 'MAX(ai24.Percentile) - MAX(ai22.Percentile)',
 }
 
+const RANK_SORT_COLUMNS = {
+  collegeName: 'ci.College_Name',
+  branchName: 'bi.Branch_Name',
+  category: 'cc24.Category',
+  cet2024: 'cc24.Merit_Rank',
+  jee2024: 'jeeRank2024',
+  cetChange: 'cc22.Merit_Rank - cc24.Merit_Rank',
+  jeeChange: 'jeeRank2022 - jeeRank2024',
+}
+
+const JEE_RANK_SORT_COLUMNS = {
+  collegeName: 'ci.College_Name',
+  branchName: 'bi.Branch_Name',
+  category: 'MIN(ai24.Merit_Rank)',
+  cet2024: 'MIN(ai24.Merit_Rank)',
+  jee2024: 'MIN(ai24.Merit_Rank)',
+  cetChange: 'MIN(ai22.Merit_Rank) - MIN(ai24.Merit_Rank)',
+  jeeChange: 'MIN(ai22.Merit_Rank) - MIN(ai24.Merit_Rank)',
+}
+
 function databaseUrl() {
   // A leading slash would point at tshrwbl.github.io instead of this repository
   // when the app is deployed below /CatRoundHelper/ on GitHub Pages.
@@ -153,6 +173,7 @@ function buildRule(rule, columns = RULE_COLUMNS) {
 function queryParts(filters = {}) {
   const exam = filters.exam === 'JEE' ? 'JEE' : 'CET'
   const isJee = exam === 'JEE'
+  const isRankMode = filters.scoreMode === 'rank'
   const anchor = isJee ? 'ai24' : 'cc24'
   const conditions = [`${anchor}.Year = 2024`]
   const parameters = []
@@ -174,14 +195,19 @@ function queryParts(filters = {}) {
     parameters.push(...ruleParameters)
   }
 
-  const cutoffColumn = isJee ? 'ai24.Percentile' : 'cc24.Percentile'
-  const minimum = Number(filters.minPercentile)
-  const maximum = Number(filters.maxPercentile)
-  if (filters.minPercentile !== '' && filters.minPercentile != null && Number.isFinite(minimum)) {
+  const cutoffColumn = isJee
+    ? (isRankMode ? 'ai24.Merit_Rank' : 'ai24.Percentile')
+    : (isRankMode ? 'cc24.Merit_Rank' : 'cc24.Percentile')
+
+  const minVal = isRankMode ? filters.minRank : filters.minPercentile
+  const maxVal = isRankMode ? filters.maxRank : filters.maxPercentile
+  const minimum = Number(minVal)
+  const maximum = Number(maxVal)
+  if (minVal !== '' && minVal != null && Number.isFinite(minimum)) {
     conditions.push(`${cutoffColumn} >= ?`)
     parameters.push(minimum)
   }
-  if (filters.maxPercentile !== '' && filters.maxPercentile != null && Number.isFinite(maximum)) {
+  if (maxVal !== '' && maxVal != null && Number.isFinite(maximum)) {
     conditions.push(`${cutoffColumn} <= ?`)
     parameters.push(maximum)
   }
@@ -213,10 +239,12 @@ function queryParts(filters = {}) {
       WHERE ${conditions.join(' AND ')}
     `
 
-  const sortColumn = isJee
-    ? (JEE_SORT_COLUMNS[filters.sortBy] ?? 'MAX(ai24.Percentile)')
-    : (SORT_COLUMNS[filters.sortBy] ?? cutoffColumn)
-  const direction = String(filters.sortDirection).toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+  const sortMap = isJee
+    ? (isRankMode ? JEE_RANK_SORT_COLUMNS : JEE_SORT_COLUMNS)
+    : (isRankMode ? RANK_SORT_COLUMNS : SORT_COLUMNS)
+  const sortColumn = sortMap[filters.sortBy] ?? cutoffColumn
+  const defaultDir = isRankMode && (filters.sortBy === 'cet2024' || filters.sortBy === 'jee2024' || !filters.sortBy) ? 'ASC' : 'DESC'
+  const direction = filters.sortDirection ? String(filters.sortDirection).toUpperCase() : defaultDir
   const orderBy = `ORDER BY ${sortColumn} ${direction}, ci.College_Name, bi.Branch_Name`
   return { exam, isJee, fromWhere, parameters, orderBy }
 }
@@ -323,9 +351,11 @@ export async function getExplorerResults(filters = {}) {
 export async function getCollegeDetails(collegeCode, payload = {}) {
   const db = await database()
   const exam = String(payload.exam).toUpperCase() === 'JEE' ? 'JEE' : 'CET'
-  const percentile = payload.percentile == null || payload.percentile === '' ? null : Number(payload.percentile)
-  if (percentile != null && !Number.isFinite(percentile)) {
-    throw new Error('Percentile must be a number.')
+  const isRankMode = payload.scoreMode === 'rank'
+  const rawScore = payload.score ?? (isRankMode ? payload.rank : payload.percentile)
+  const numericScore = rawScore == null || rawScore === '' ? null : Number(rawScore)
+  if (numericScore != null && !Number.isFinite(numericScore)) {
+    throw new Error(`${isRankMode ? 'Rank' : 'Percentile'} must be a number.`)
   }
 
   const allowedFields = new Set(['category', 'branch', 'branchCode', 'status'])
@@ -394,16 +424,24 @@ export async function getCollegeDetails(collegeCode, payload = {}) {
   if (!rows.length) {
     throw new Error('No cutoff data found for this college and active filters.')
   }
-  const cutoffKey = exam === 'JEE' ? 'jeePercentile' : 'cetPercentile'
+  const cutoffKey = isRankMode
+    ? (exam === 'JEE' ? 'jeeRank' : 'cetRank')
+    : (exam === 'JEE' ? 'jeePercentile' : 'cetPercentile')
+
   for (const row of rows) {
-    row.fitDifference = percentile != null && row[cutoffKey] != null
-      ? Number((percentile - row[cutoffKey]).toFixed(2))
-      : null
+    if (numericScore != null && row[cutoffKey] != null) {
+      row.fitDifference = isRankMode
+        ? Number(row[cutoffKey] - numericScore)
+        : Number((numericScore - row[cutoffKey]).toFixed(2))
+    } else {
+      row.fitDifference = null
+    }
   }
   return {
     college: { code: rows[0].collegeCode, name: rows[0].collegeName },
     exam,
-    percentile,
+    scoreMode: isRankMode ? 'rank' : 'percentile',
+    score: numericScore,
     rows,
   }
 }
@@ -430,21 +468,36 @@ export async function getTrends({ collegeCode, branchCode, category = 'GOPENS', 
 
 export async function getPredictions(profile = {}) {
   const exam = String(profile.exam).toUpperCase()
-  const percentile = Number(profile.percentile)
-  if (!['CET', 'JEE'].includes(exam) || profile.percentile == null || !Number.isFinite(percentile)) {
-    throw new Error('A CET/JEE exam and percentile are required.')
+  const isRankMode = profile.scoreMode === 'rank'
+  const rawScore = isRankMode ? profile.rank : profile.percentile
+  const score = Number(rawScore)
+  if (!['CET', 'JEE'].includes(exam) || rawScore == null || rawScore === '' || !Number.isFinite(score)) {
+    throw new Error(`A CET/JEE exam and ${isRankMode ? 'rank' : 'percentile'} are required.`)
   }
-  if (percentile < 0 || percentile > 100) {
+  if (!isRankMode && (score < 0 || score > 100)) {
     throw new Error('Percentile must be between 0 and 100.')
+  }
+  if (isRankMode && score < 1) {
+    throw new Error('Rank must be 1 or greater.')
   }
 
   const db = await database()
-  const filters = {
-    ...profile,
-    exam,
-    minPercentile: percentile - 10,
-    maxPercentile: percentile + 5,
-  }
+  const filters = isRankMode
+    ? {
+        ...profile,
+        exam,
+        scoreMode: 'rank',
+        minRank: Math.max(1, score - 3000),
+        maxRank: score + 5000,
+      }
+    : {
+        ...profile,
+        exam,
+        scoreMode: 'percentile',
+        minPercentile: score - 10,
+        maxPercentile: score + 5,
+      }
+
   const { isJee, fromWhere, parameters, orderBy } = queryParts(filters)
   const groupBy = isJee
     ? 'GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, ai24.CAP_Round'
@@ -455,15 +508,26 @@ export async function getPredictions(profile = {}) {
     [...parameters, MAX_PREDICTION_RESULTS],
   )
 
-  const cutoffKey = exam === 'JEE' ? 'jee2024' : 'cet2024'
+  const cutoffKey = isRankMode
+    ? (exam === 'JEE' ? 'jeeRank2024' : 'cetRank2024')
+    : (exam === 'JEE' ? 'jee2024' : 'cet2024')
+
   const groups = { safe: [], target: [], reach: [] }
   for (const row of rows) {
     if (row[cutoffKey] == null) continue
-    const difference = percentile - row[cutoffKey]
-    row.difference = Number(difference.toFixed(2))
-    if (difference > 2) groups.safe.push(row)
-    else if (difference >= -1.5 && difference < 0) groups.reach.push(row)
-    else if (difference >= -2) groups.target.push(row)
+    if (isRankMode) {
+      const difference = row[cutoffKey] - score
+      row.difference = Math.round(difference)
+      if (difference > 1000) groups.safe.push(row)
+      else if (difference >= -1000 && difference <= 1000) groups.target.push(row)
+      else if (difference >= -3000 && difference < -1000) groups.reach.push(row)
+    } else {
+      const difference = score - row[cutoffKey]
+      row.difference = Number(difference.toFixed(2))
+      if (difference > 2) groups.safe.push(row)
+      else if (difference >= -1.5 && difference < 0) groups.reach.push(row)
+      else if (difference >= -2) groups.target.push(row)
+    }
   }
-  return { exam, percentile, groups }
+  return { exam, scoreMode: isRankMode ? 'rank' : 'percentile', score, groups }
 }
