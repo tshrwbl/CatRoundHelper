@@ -4,7 +4,7 @@ import {
   Bar, BarChart as RechartsBarChart, CartesianGrid, Legend, Line, LineChart as RechartsLineChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { getCollegeDetails, getExplorerResults, getMetadata, getPredictions, getTrends } from './db'
+import { getCollegeDetails, getExplorerResults, getMetadata, getPredictions, getTrends, PREDICTOR_CONFIG } from './db'
 import { activatePendingUpdate } from './pwa'
 
 import obcMaleCsItRules from './presets/OBC_Male_CS_IT.json'
@@ -222,12 +222,17 @@ function CollegePage({ college, data, loading, collegeRules, onEditFilters, perc
   return <section className="college-page"><div className="college-header"><div><p className="eyebrow">College intelligence</p><h2>{college.collegeName}</h2><p>Code {college.collegeCode} · 2024 {exam === 'JEE' ? 'branch' : 'category-wise'} cutoff overview</p></div><div className="college-controls"><CollegePicker options={collegeOptions} college={college} onSelect={onSelectCollege} /><button className="open-filter-builder" onClick={onEditFilters}><SlidersHorizontal size={16} /> College filters{collegeRules.length ? ` (${collegeRules.length})` : ''}</button><p>Your {exam} {isRankMode ? 'rank' : 'percentile'}: <strong>{userScoreDisplay}</strong></p></div></div><div className="college-metrics"><article><span>Branches shown</span><strong>{new Set(latest.map((row) => row.branchCode)).size}</strong></article><article><span>{exam === 'JEE' ? 'Branch cutoffs' : 'Category cutoffs'}</span><strong>{latest.length}</strong></article><article><span>Your score</span><strong>{userScoreDisplay}</strong></article></div><div className="college-chart"><div><h3>Most competitive branches</h3><p>{isRankMode ? 'Lowest' : 'Highest'} 2024 {exam} cutoff across each branch’s categories.</p></div>{chartData.length ? <ResponsiveContainer width="100%" height={290}><RechartsBarChart data={chartData} layout="vertical" margin={{ left: 14, right: 30 }}><CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" /><XAxis type="number" stroke="var(--chart-axis)" domain={['auto', 'auto']} reversed={isRankMode} /><YAxis type="category" dataKey="branch" width={185} stroke="var(--text-color)" tick={{ fontSize: 11 }} /><Tooltip contentStyle={{ background: 'var(--tooltip-bg)', border: '1px solid var(--tooltip-border)', borderRadius: 12 }} labelStyle={{ color: 'var(--text-color)' }} itemStyle={{ color: 'var(--text-color)' }} /><Bar dataKey="cutoff" name={`${exam} ${isRankMode ? 'rank' : 'percentile'}`} fill="#8b7cf6" radius={[0, 5, 5, 0]} /></RechartsBarChart></ResponsiveContainer> : <div className="empty compact">No 2024 cutoff data for this exam and filter set.</div>}</div><div className="college-chart"><div><h3>College cutoff movement</h3><p>Average category-wise {isRankMode ? 'rank' : 'percentile'} across the selected branches.</p></div><ResponsiveContainer width="100%" height={260}><RechartsLineChart data={historyData} margin={{ top: 10, right: 24, left: -12 }}><CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" /><XAxis dataKey="year" stroke="var(--chart-axis)" /><YAxis domain={['auto', 'auto']} stroke="var(--chart-axis)" reversed={isRankMode} /><Tooltip contentStyle={{ background: 'var(--tooltip-bg)', border: '1px solid var(--tooltip-border)', borderRadius: 12 }} labelStyle={{ color: 'var(--text-color)' }} itemStyle={{ color: 'var(--text-color)' }} /><Legend /><Line type="monotone" dataKey="cet" name="CET average" stroke="#a78bfa" strokeWidth={3} connectNulls /><Line type="monotone" dataKey="jee" name="JEE average" stroke="#2dd4bf" strokeWidth={3} connectNulls /></RechartsLineChart></ResponsiveContainer></div><div className="college-table"><h3>{exam === 'JEE' ? 'All 2024 branch cutoffs' : 'All 2024 category-wise cutoffs'}</h3><div className="table-wrap"><table><thead><tr><th>Branch</th><th>Branch status</th>{exam !== 'JEE' && <th>Category</th>}{exam !== 'JEE' && collegeHeading('CET', isRankMode ? 'cetRank' : 'cetPercentile')}{collegeHeading('JEE', isRankMode ? 'jeeRank' : 'jeePercentile')}</tr></thead><tbody>{sortedLatest.map((row, index) => <tr key={`${row.branchCode}-${row.category || ''}-${row.capRound}-${index}`}><td><strong>{row.branchName}</strong><span>{row.branchCode}</span></td><td>{row.branchStatus || '—'}</td>{exam !== 'JEE' && <td><span className="tag">{row.category}</span></td>}{exam !== 'JEE' && <ScoreCell cutoffPercentile={row.cetPercentile} cutoffRank={row.cetRank} scoreMode={scoreMode} userPercentile={percentiles.CET} userRank={ranks.CET} />}<ScoreCell cutoffPercentile={row.jeePercentile} cutoffRank={row.jeeRank} scoreMode={scoreMode} userPercentile={percentiles.JEE} userRank={ranks.JEE} /></tr>)}</tbody></table></div></div></section>
 }
 
-function Predictor({ filters, percentiles, ranks }) {
+function Predictor({ filters, percentiles, ranks, onOpenFilterBuilder }) {
   const isRankMode = filters.scoreMode === 'rank'
   const score = isRankMode ? ranks[filters.exam] : percentiles[filters.exam]
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState({ safe: false, target: false, reach: false })
+
+  const toggleExpand = (key) => {
+    setExpanded((curr) => ({ ...curr, [key]: !curr[key] }))
+  }
 
   const fetchPrediction = async () => {
     if (score === '' || score == null || !Number.isFinite(Number(score))) return
@@ -274,16 +279,18 @@ function Predictor({ filters, percentiles, ranks }) {
     fetchPrediction()
   }
 
+  const cfg = isRankMode ? PREDICTOR_CONFIG.rank : PREDICTOR_CONFIG.percentile
+
   const columns = isRankMode
     ? [
-        ['safe', 'Safe', 'Cutoff rank is > 1000 ranks worse than your rank'],
-        ['target', 'Target', 'Cutoff rank is within ±1000 ranks of your rank'],
-        ['reach', 'Reach', 'Cutoff rank is up to 3000 ranks better than your rank'],
+        ['safe', 'Safe', `Cutoff rank is > ${cfg.targetDelta} ranks worse than your rank`],
+        ['target', 'Target', `Cutoff rank is within ±${cfg.targetDelta} ranks of your rank`],
+        ['reach', 'Reach', `Cutoff rank is ${cfg.targetDelta} to ${cfg.reachMaxDelta} ranks better than your rank`],
       ]
     : [
-        ['safe', 'Safe', 'More than 2 points below your percentile'],
-        ['target', 'Target', 'Within 2 points'],
-        ['reach', 'Reach', 'Up to 1.5 points above your percentile'],
+        ['safe', 'Safe', `Cutoff percentile is > ${cfg.targetDelta}% lower than your score`],
+        ['target', 'Target', `Cutoff percentile is within ±${cfg.targetDelta}% of your score`],
+        ['reach', 'Reach', `Cutoff percentile is ${cfg.targetDelta}% to ${cfg.reachMaxDelta}% higher than your score`],
       ]
 
   return (
@@ -297,9 +304,21 @@ function Predictor({ filters, percentiles, ranks }) {
             ({isRankMode ? formatRank(score) : score ? `${score}%` : '—'}) against the 2024 closing cutoff.
           </p>
         </div>
-        <button className="primary" disabled={loading || score === '' || score == null}>
-          {loading ? 'Matching…' : 'Build recommendations'} <Sparkles size={16} />
-        </button>
+        <div className="predictor-actions">
+          {onOpenFilterBuilder && (
+            <button
+              type="button"
+              className="open-filter-builder"
+              onClick={onOpenFilterBuilder}
+              title="Apply filters to prediction results"
+            >
+              <SlidersHorizontal size={16} /> Filter results{filters.rules.length ? ` (${filters.rules.length})` : ''}
+            </button>
+          )}
+          <button className="primary" disabled={loading || score === '' || score == null}>
+            {loading ? 'Matching…' : 'Build recommendations'} <Sparkles size={16} />
+          </button>
+        </div>
         {error && <p className="error">{error}</p>}
       </form>
       {loading && !result && (
@@ -309,26 +328,47 @@ function Predictor({ filters, percentiles, ranks }) {
       )}
       {result && (
         <div className="prediction-grid">
-          {columns.map(([key, title, description]) => (
-            <article className={`prediction-card ${key}`} key={key}>
-              <h3>{title}</h3>
-              <p>{description}</p>
-              <strong>{result.groups[key].length} matches</strong>
-              <ul>
-                {result.groups[key].slice(0, 8).map((row, index) => (
-                  <li key={`${row.branchCode}-${row.category || ''}-${index}`}>
-                    <b>{row.collegeName}</b>
-                    <span>
-                      {row.branchName} ·{' '}
-                      {isRankMode
-                        ? `Rank ${formatRank(row[filters.exam === 'JEE' ? 'jeeRank2024' : 'cetRank2024'])} cutoff`
-                        : `${formatPercentile(row[filters.exam === 'JEE' ? 'jee2024' : 'cet2024'])}% cutoff`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
+          {columns.map(([key, title, description]) => {
+            const matches = result.groups[key] || []
+            const isExpanded = expanded[key]
+            const visibleRows = isExpanded ? matches.slice(0, 100) : matches.slice(0, 10)
+            const hasMore = matches.length > 10
+
+            return (
+              <article className={`prediction-card ${key}`} key={key}>
+                <h3>{title}</h3>
+                <p>{description}</p>
+                <strong>{matches.length} matches</strong>
+                <ul>
+                  {visibleRows.map((row, index) => (
+                    <li key={`${row.branchCode}-${row.category || ''}-${index}`}>
+                      <b>{row.collegeName}</b>
+                      <span>
+                        {row.branchName} ·{' '}
+                        {isRankMode
+                          ? `Rank ${formatRank(row[filters.exam === 'JEE' ? 'jeeRank2024' : 'cetRank2024'])} cutoff`
+                          : `${formatPercentile(row[filters.exam === 'JEE' ? 'jee2024' : 'cet2024'])}% cutoff`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {hasMore && (
+                  <div className="prediction-card-footer">
+                    <button
+                      type="button"
+                      className="show-more-btn"
+                      onClick={() => toggleExpand(key)}
+                    >
+                      {isExpanded ? 'Show less' : `Show ${matches.length - 10} more`}
+                    </button>
+                    <small className="match-counter">
+                      Showing {visibleRows.length} of {matches.length} matches
+                    </small>
+                  </div>
+                )}
+              </article>
+            )
+          })}
         </div>
       )}
     </section>
@@ -694,7 +734,7 @@ export default function App() {
       </div>
       <section className="advanced-filters"><label>Advanced filters</label><p>{filters.rules.length ? `${filters.rules.length} active filter${filters.rules.length === 1 ? '' : 's'}` : 'No active filters'}</p><button className="open-filter-builder" onClick={() => { setFilterModalOpen(true); setMobileMenuOpen(false); }}><SlidersHorizontal size={16} /> Open filter builder</button></section>
     </aside>
-    <section className="content"><div className="tabs-container"><nav className="tabs">{[['explorer', 'Explorer', Search], ['trends', 'Trends', LineChart], ['college', 'College', Building2], ['predictor', 'Predictor', Sparkles]].map(([id, name, Icon]) => <button key={id} onClick={() => setTab(id)} className={tab === id ? 'active' : ''}><Icon size={16} /> {name}</button>)}</nav><div className="data-note"><BarChart3 size={17} /> {summary}</div></div>{updateAvailable && <div className="update banner">A newer offline database is ready. <button onClick={() => activatePendingUpdate()}>Reload now</button></div>}{error && <div className="error banner">{error}</div>}<div className="panel">{tab === 'explorer' && <Explorer rows={rows} loading={loading} onSelectTrend={selectTrend} onOpenCollege={openCollege} sort={sort} onSort={changeSort} percentiles={candidatePercentiles} ranks={candidateRanks} exam={filters.exam} scoreMode={filters.scoreMode} pagination={{ page, pageSize, total, onPage: setPage, onPageSize: (size) => { setPageSize(size); setPage(1) } }} />}{tab === 'trends' && <Trends selected={selected} data={trendData} loading={trendLoading} scoreMode={filters.scoreMode} />}{tab === 'college' && <CollegePage college={college} data={collegeData} collegeRules={collegeRules} onEditFilters={() => setCollegeFilterModalOpen(true)} percentile={candidatePercentiles[filters.exam]} percentiles={candidatePercentiles} rank={candidateRanks[filters.exam]} ranks={candidateRanks} exam={filters.exam} scoreMode={filters.scoreMode} collegeOptions={metadata.collegeOptions || []} onSelectCollege={selectCollege} />}{tab === 'predictor' && <Predictor filters={filters} percentiles={candidatePercentiles} ranks={candidateRanks} />}</div></section>
+    <section className="content"><div className="tabs-container"><nav className="tabs">{[['explorer', 'Explorer', Search], ['trends', 'Trends', LineChart], ['college', 'College', Building2], ['predictor', 'Predictor', Sparkles]].map(([id, name, Icon]) => <button key={id} onClick={() => setTab(id)} className={tab === id ? 'active' : ''}><Icon size={16} /> {name}</button>)}</nav><div className="data-note"><BarChart3 size={17} /> {summary}</div></div>{updateAvailable && <div className="update banner">A newer offline database is ready. <button onClick={() => activatePendingUpdate()}>Reload now</button></div>}{error && <div className="error banner">{error}</div>}<div className="panel">{tab === 'explorer' && <Explorer rows={rows} loading={loading} onSelectTrend={selectTrend} onOpenCollege={openCollege} sort={sort} onSort={changeSort} percentiles={candidatePercentiles} ranks={candidateRanks} exam={filters.exam} scoreMode={filters.scoreMode} pagination={{ page, pageSize, total, onPage: setPage, onPageSize: (size) => { setPageSize(size); setPage(1) } }} />}{tab === 'trends' && <Trends selected={selected} data={trendData} loading={trendLoading} scoreMode={filters.scoreMode} />}{tab === 'college' && <CollegePage college={college} data={collegeData} collegeRules={collegeRules} onEditFilters={() => setCollegeFilterModalOpen(true)} percentile={candidatePercentiles[filters.exam]} percentiles={candidatePercentiles} rank={candidateRanks[filters.exam]} ranks={candidateRanks} exam={filters.exam} scoreMode={filters.scoreMode} collegeOptions={metadata.collegeOptions || []} onSelectCollege={selectCollege} />}{tab === 'predictor' && <Predictor filters={filters} percentiles={candidatePercentiles} ranks={candidateRanks} onOpenFilterBuilder={() => setFilterModalOpen(true)} />}</div></section>
     {filterModalOpen && <FilterModal rules={filters.rules} metadata={metadata} templates={templates} onApply={applyRules} onClose={() => setFilterModalOpen(false)} onSaveTemplate={saveTemplate} />}
     {collegeFilterModalOpen && <FilterModal rules={collegeRules} metadata={metadata} templates={templates} fields={collegeRuleFields} title="Filter this college" description="Only branch name, branch code, branch status, and category can filter a college overview." onApply={setCollegeRules} onClose={() => setCollegeFilterModalOpen(false)} onSaveTemplate={saveTemplate} />}</main>
 }

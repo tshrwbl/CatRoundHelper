@@ -245,7 +245,7 @@ function queryParts(filters = {}) {
   const sortColumn = sortMap[filters.sortBy] ?? cutoffColumn
   const defaultDir = isRankMode && (filters.sortBy === 'cet2024' || filters.sortBy === 'jee2024' || !filters.sortBy) ? 'ASC' : 'DESC'
   const direction = filters.sortDirection ? String(filters.sortDirection).toUpperCase() : defaultDir
-  const orderBy = `ORDER BY ${sortColumn} ${direction}, ci.College_Name, bi.Branch_Name`
+  const orderBy = filters.customOrderBy ?? `ORDER BY ${sortColumn} ${direction}, ci.College_Name, bi.Branch_Name`
   return { exam, isJee, fromWhere, parameters, orderBy }
 }
 
@@ -466,6 +466,19 @@ export async function getTrends({ collegeCode, branchCode, category = 'GOPENS', 
   return { cet, jee }
 }
 
+export const PREDICTOR_CONFIG = {
+  rank: {
+    targetDelta: 2000,
+    reachMaxDelta: 10000,
+    safeMaxDelta: 10000,
+  },
+  percentile: {
+    targetDelta: 2.0,
+    reachMaxDelta: 10.0,
+    safeMaxDelta: 10.0,
+  },
+}
+
 export async function getPredictions(profile = {}) {
   const exam = String(profile.exam).toUpperCase()
   const isRankMode = profile.scoreMode === 'rank'
@@ -482,53 +495,62 @@ export async function getPredictions(profile = {}) {
   }
 
   const db = await database()
+  const cutoffColumn = (exam === 'JEE')
+    ? (isRankMode ? 'ai24.Merit_Rank' : 'ai24.Percentile')
+    : (isRankMode ? 'cc24.Merit_Rank' : 'cc24.Percentile')
+
   const cutoffKey = isRankMode
     ? (exam === 'JEE' ? 'jeeRank2024' : 'cetRank2024')
     : (exam === 'JEE' ? 'jee2024' : 'cet2024')
 
+  const cfg = isRankMode ? PREDICTOR_CONFIG.rank : PREDICTOR_CONFIG.percentile
+
   const buckets = isRankMode
     ? [
-        {
-          key: 'reach',
-          minRank: Math.max(1, score - 3000),
-          maxRank: Math.max(1, score - 1000),
-          sortDirection: 'DESC',
-        },
-        {
-          key: 'target',
-          minRank: Math.max(1, score - 1000),
-          maxRank: score + 1000,
-          sortDirection: 'ASC',
-        },
-        {
-          key: 'safe',
-          minRank: score + 1000,
-          maxRank: score + 5000,
-          sortDirection: 'ASC',
-        },
-      ]
+      {
+        key: 'reach',
+        minRank: Math.max(1, score - cfg.reachMaxDelta),
+        maxRank: Math.max(1, score - cfg.targetDelta),
+        customOrderBy: `ORDER BY ${cutoffColumn} DESC, ci.College_Name, bi.Branch_Name`,
+      },
+      {
+        key: 'target',
+        minRank: Math.max(1, score - cfg.targetDelta),
+        maxRank: score + cfg.targetDelta,
+        customOrderBy: `ORDER BY ABS(${cutoffColumn} - ?) ASC, ci.College_Name, bi.Branch_Name`,
+        orderParams: [score],
+      },
+      {
+        key: 'safe',
+        minRank: score + cfg.targetDelta,
+        maxRank: score + cfg.safeMaxDelta,
+        customOrderBy: `ORDER BY ${cutoffColumn} ASC, ci.College_Name, bi.Branch_Name`,
+      },
+    ]
     : [
-        {
-          key: 'reach',
-          minPercentile: score,
-          maxPercentile: Math.min(100, score + 1.5),
-          sortDirection: 'ASC',
-        },
-        {
-          key: 'target',
-          minPercentile: Math.max(0, score - 2),
-          maxPercentile: score,
-          sortDirection: 'DESC',
-        },
-        {
-          key: 'safe',
-          minPercentile: Math.max(0, score - 10),
-          maxPercentile: Math.max(0, score - 2),
-          sortDirection: 'DESC',
-        },
-      ]
+      {
+        key: 'reach',
+        minPercentile: Math.min(100, score + cfg.targetDelta),
+        maxPercentile: Math.min(100, score + cfg.reachMaxDelta),
+        customOrderBy: `ORDER BY ${cutoffColumn} ASC, ci.College_Name, bi.Branch_Name`,
+      },
+      {
+        key: 'target',
+        minPercentile: Math.max(0, score - cfg.targetDelta),
+        maxPercentile: Math.min(100, score + cfg.targetDelta),
+        customOrderBy: `ORDER BY ABS(${cutoffColumn} - ?) ASC, ci.College_Name, bi.Branch_Name`,
+        orderParams: [score],
+      },
+      {
+        key: 'safe',
+        minPercentile: Math.max(0, score - cfg.safeMaxDelta),
+        maxPercentile: Math.max(0, score - cfg.targetDelta),
+        customOrderBy: `ORDER BY ${cutoffColumn} DESC, ci.College_Name, bi.Branch_Name`,
+      },
+    ]
 
   const groups = { safe: [], target: [], reach: [] }
+  const seenKeys = new Set()
 
   for (const bucket of buckets) {
     const bucketFilters = {
@@ -539,37 +561,63 @@ export async function getPredictions(profile = {}) {
       maxRank: bucket.maxRank,
       minPercentile: bucket.minPercentile,
       maxPercentile: bucket.maxPercentile,
-      sortDirection: bucket.sortDirection,
+      customOrderBy: bucket.customOrderBy,
     }
 
     const { isJee, fromWhere, parameters, orderBy } = queryParts(bucketFilters)
     const groupBy = isJee
       ? 'GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, ai24.CAP_Round'
       : ''
+    const queryParams = bucket.orderParams
+      ? [...parameters, ...bucket.orderParams, 200]
+      : [...parameters, 200]
     const rows = selectRows(
       db,
       `SELECT ${selectColumns(exam)} ${fromWhere} ${groupBy} ${orderBy} LIMIT ?`,
-      [...parameters, 100],
+      queryParams,
     )
 
     for (const row of rows) {
       if (row[cutoffKey] == null) continue
+      const rowId = `${row.collegeCode}-${row.branchCode}-${row.category || ''}-${row.capRound}`
+      if (seenKeys.has(rowId)) continue
+      seenKeys.add(rowId)
+
       if (isRankMode) {
         const difference = row[cutoffKey] - score
         row.difference = Math.round(difference)
-        if (difference > 1000) groups.safe.push(row)
-        else if (difference >= -1000 && difference <= 1000) groups.target.push(row)
-        else if (difference >= -3000 && difference < -1000) groups.reach.push(row)
+        if (difference > cfg.targetDelta) groups.safe.push(row)
+        else if (difference >= -cfg.targetDelta && difference <= cfg.targetDelta) groups.target.push(row)
+        else if (difference < -cfg.targetDelta) groups.reach.push(row)
       } else {
         const difference = score - row[cutoffKey]
         row.difference = Number(difference.toFixed(2))
-        if (difference > 2) groups.safe.push(row)
-        else if (difference >= 0 && difference <= 2) groups.target.push(row)
-        else if (difference >= -1.5 && difference < 0) groups.reach.push(row)
+        if (difference > cfg.targetDelta) groups.safe.push(row)
+        else if (difference >= -cfg.targetDelta && difference <= cfg.targetDelta) groups.target.push(row)
+        else if (difference < -cfg.targetDelta) groups.reach.push(row)
       }
     }
   }
 
+  // Sort groups according to exact distance rules:
+  // Safe: nearest match first (e.g. +1001 before +1005) -> Math.abs(diff) ASC
+  groups.safe.sort((a, b) => Math.abs(a.difference) - Math.abs(b.difference))
+
+  // Target: sort by absolute number ASC (e.g. 5010 [+10] before 4980 [-20]). On tie, positive first.
+  groups.target.sort((a, b) => {
+    const absA = Math.abs(a.difference)
+    const absB = Math.abs(b.difference)
+    if (absA !== absB) return absA - absB
+    return b.difference - a.difference
+  })
+
+  // Reach: show in descending order from -1000 (nearest match to -1000 first, e.g. -1001 before -1005)
+  groups.reach.sort((a, b) => b.difference - a.difference)
+
+  // Cap each group at max 100 rows
+  groups.safe = groups.safe.slice(0, 100)
+  groups.target = groups.target.slice(0, 100)
+  groups.reach = groups.reach.slice(0, 100)
+
   return { exam, scoreMode: isRankMode ? 'rank' : 'percentile', score, groups }
 }
-
