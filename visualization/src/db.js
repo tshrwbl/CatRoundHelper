@@ -482,52 +482,94 @@ export async function getPredictions(profile = {}) {
   }
 
   const db = await database()
-  const filters = isRankMode
-    ? {
-        ...profile,
-        exam,
-        scoreMode: 'rank',
-        minRank: Math.max(1, score - 3000),
-        maxRank: score + 5000,
-      }
-    : {
-        ...profile,
-        exam,
-        scoreMode: 'percentile',
-        minPercentile: score - 10,
-        maxPercentile: score + 5,
-      }
-
-  const { isJee, fromWhere, parameters, orderBy } = queryParts(filters)
-  const groupBy = isJee
-    ? 'GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, ai24.CAP_Round'
-    : ''
-  const rows = selectRows(
-    db,
-    `SELECT ${selectColumns(exam)} ${fromWhere} ${groupBy} ${orderBy} LIMIT ?`,
-    [...parameters, MAX_PREDICTION_RESULTS],
-  )
-
   const cutoffKey = isRankMode
     ? (exam === 'JEE' ? 'jeeRank2024' : 'cetRank2024')
     : (exam === 'JEE' ? 'jee2024' : 'cet2024')
 
+  const buckets = isRankMode
+    ? [
+        {
+          key: 'reach',
+          minRank: Math.max(1, score - 3000),
+          maxRank: Math.max(1, score - 1000),
+          sortDirection: 'DESC',
+        },
+        {
+          key: 'target',
+          minRank: Math.max(1, score - 1000),
+          maxRank: score + 1000,
+          sortDirection: 'ASC',
+        },
+        {
+          key: 'safe',
+          minRank: score + 1000,
+          maxRank: score + 5000,
+          sortDirection: 'ASC',
+        },
+      ]
+    : [
+        {
+          key: 'reach',
+          minPercentile: score,
+          maxPercentile: Math.min(100, score + 1.5),
+          sortDirection: 'ASC',
+        },
+        {
+          key: 'target',
+          minPercentile: Math.max(0, score - 2),
+          maxPercentile: score,
+          sortDirection: 'DESC',
+        },
+        {
+          key: 'safe',
+          minPercentile: Math.max(0, score - 10),
+          maxPercentile: Math.max(0, score - 2),
+          sortDirection: 'DESC',
+        },
+      ]
+
   const groups = { safe: [], target: [], reach: [] }
-  for (const row of rows) {
-    if (row[cutoffKey] == null) continue
-    if (isRankMode) {
-      const difference = row[cutoffKey] - score
-      row.difference = Math.round(difference)
-      if (difference > 1000) groups.safe.push(row)
-      else if (difference >= -1000 && difference <= 1000) groups.target.push(row)
-      else if (difference >= -3000 && difference < -1000) groups.reach.push(row)
-    } else {
-      const difference = score - row[cutoffKey]
-      row.difference = Number(difference.toFixed(2))
-      if (difference > 2) groups.safe.push(row)
-      else if (difference >= -1.5 && difference < 0) groups.reach.push(row)
-      else if (difference >= -2) groups.target.push(row)
+
+  for (const bucket of buckets) {
+    const bucketFilters = {
+      ...profile,
+      exam,
+      scoreMode: isRankMode ? 'rank' : 'percentile',
+      minRank: bucket.minRank,
+      maxRank: bucket.maxRank,
+      minPercentile: bucket.minPercentile,
+      maxPercentile: bucket.maxPercentile,
+      sortDirection: bucket.sortDirection,
+    }
+
+    const { isJee, fromWhere, parameters, orderBy } = queryParts(bucketFilters)
+    const groupBy = isJee
+      ? 'GROUP BY ci.College_Code, ci.College_Name, bi.Branch_Code, bi.Branch_Name, bi.Home_University, bi.Status, ai24.CAP_Round'
+      : ''
+    const rows = selectRows(
+      db,
+      `SELECT ${selectColumns(exam)} ${fromWhere} ${groupBy} ${orderBy} LIMIT ?`,
+      [...parameters, 100],
+    )
+
+    for (const row of rows) {
+      if (row[cutoffKey] == null) continue
+      if (isRankMode) {
+        const difference = row[cutoffKey] - score
+        row.difference = Math.round(difference)
+        if (difference > 1000) groups.safe.push(row)
+        else if (difference >= -1000 && difference <= 1000) groups.target.push(row)
+        else if (difference >= -3000 && difference < -1000) groups.reach.push(row)
+      } else {
+        const difference = score - row[cutoffKey]
+        row.difference = Number(difference.toFixed(2))
+        if (difference > 2) groups.safe.push(row)
+        else if (difference >= 0 && difference <= 2) groups.target.push(row)
+        else if (difference >= -1.5 && difference < 0) groups.reach.push(row)
+      }
     }
   }
+
   return { exam, scoreMode: isRankMode ? 'rank' : 'percentile', score, groups }
 }
+
