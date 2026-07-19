@@ -468,7 +468,7 @@ export async function getTrends({ collegeCode, branchCode, category = 'GOPENS', 
 
 export const PREDICTOR_CONFIG = {
   rank: {
-    targetDelta: 1000,
+    targetDelta: 2000,
     reachMaxDelta: 10000,
     safeMaxDelta: 10000,
   },
@@ -507,47 +507,47 @@ export async function getPredictions(profile = {}) {
 
   const buckets = isRankMode
     ? [
-        {
-          key: 'reach',
-          minRank: Math.max(1, score - cfg.reachMaxDelta),
-          maxRank: Math.max(1, score - cfg.targetDelta),
-          customOrderBy: `ORDER BY ${cutoffColumn} DESC, ci.College_Name, bi.Branch_Name`,
-        },
-        {
-          key: 'target',
-          minRank: Math.max(1, score - cfg.targetDelta),
-          maxRank: score + cfg.targetDelta,
-          customOrderBy: `ORDER BY ABS(${cutoffColumn} - ?) ASC, ci.College_Name, bi.Branch_Name`,
-          orderParams: [score],
-        },
-        {
-          key: 'safe',
-          minRank: score + cfg.targetDelta,
-          maxRank: score + cfg.safeMaxDelta,
-          customOrderBy: `ORDER BY ${cutoffColumn} ASC, ci.College_Name, bi.Branch_Name`,
-        },
-      ]
+      {
+        key: 'reach',
+        minRank: Math.max(1, score - cfg.reachMaxDelta),
+        maxRank: Math.max(1, score - cfg.targetDelta),
+        customOrderBy: `ORDER BY ${cutoffColumn} DESC, ci.College_Name, bi.Branch_Name`,
+      },
+      {
+        key: 'target',
+        minRank: Math.max(1, score - cfg.targetDelta),
+        maxRank: score + cfg.targetDelta,
+        customOrderBy: `ORDER BY ABS(${cutoffColumn} - ?) ASC, ci.College_Name, bi.Branch_Name`,
+        orderParams: [score],
+      },
+      {
+        key: 'safe',
+        minRank: score + cfg.targetDelta,
+        maxRank: score + cfg.safeMaxDelta,
+        customOrderBy: `ORDER BY ${cutoffColumn} ASC, ci.College_Name, bi.Branch_Name`,
+      },
+    ]
     : [
-        {
-          key: 'reach',
-          minPercentile: Math.min(100, score + cfg.targetDelta),
-          maxPercentile: Math.min(100, score + cfg.reachMaxDelta),
-          customOrderBy: `ORDER BY ${cutoffColumn} ASC, ci.College_Name, bi.Branch_Name`,
-        },
-        {
-          key: 'target',
-          minPercentile: Math.max(0, score - cfg.targetDelta),
-          maxPercentile: Math.min(100, score + cfg.targetDelta),
-          customOrderBy: `ORDER BY ABS(${cutoffColumn} - ?) ASC, ci.College_Name, bi.Branch_Name`,
-          orderParams: [score],
-        },
-        {
-          key: 'safe',
-          minPercentile: Math.max(0, score - cfg.safeMaxDelta),
-          maxPercentile: Math.max(0, score - cfg.targetDelta),
-          customOrderBy: `ORDER BY ${cutoffColumn} DESC, ci.College_Name, bi.Branch_Name`,
-        },
-      ]
+      {
+        key: 'reach',
+        minPercentile: Math.min(100, score + cfg.targetDelta),
+        maxPercentile: Math.min(100, score + cfg.reachMaxDelta),
+        customOrderBy: `ORDER BY ${cutoffColumn} ASC, ci.College_Name, bi.Branch_Name`,
+      },
+      {
+        key: 'target',
+        minPercentile: Math.max(0, score - cfg.targetDelta),
+        maxPercentile: Math.min(100, score + cfg.targetDelta),
+        customOrderBy: `ORDER BY ABS(${cutoffColumn} - ?) ASC, ci.College_Name, bi.Branch_Name`,
+        orderParams: [score],
+      },
+      {
+        key: 'safe',
+        minPercentile: Math.max(0, score - cfg.safeMaxDelta),
+        maxPercentile: Math.max(0, score - cfg.targetDelta),
+        customOrderBy: `ORDER BY ${cutoffColumn} DESC, ci.College_Name, bi.Branch_Name`,
+      },
+    ]
 
   const groups = { safe: [], target: [], reach: [] }
   const seenKeys = new Set()
