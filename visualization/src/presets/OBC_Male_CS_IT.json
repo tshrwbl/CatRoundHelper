@@ -3,11 +3,7 @@
     "field": "category",
     "matcher": "in",
     "mode": "include",
-    "value": [
-      "GOBCH",
-      "GOBCO",
-      "GOBCS"
-    ],
+    "value": ["GOBCH", "GOBCO", "GOBCS"],
     "listValue": "GOBCH, GOBCO, GOBCS",
     "join": "AND"
   },
@@ -15,11 +11,7 @@
     "field": "homeUniversity",
     "matcher": "in",
     "mode": "include",
-    "value": [
-      "Autonomous Institute",
-      "Deemed to be University",
-      "Savitribai Phule Pune University"
-    ],
+    "value": ["Autonomous Institute", "Deemed to be University", "Savitribai Phule Pune University"],
     "listValue": "Autonomous Institute, Deemed to be University, Savitribai Phule Pune University",
     "join": "AND"
   },
